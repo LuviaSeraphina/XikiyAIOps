@@ -18,6 +18,7 @@ from app.mcp_plugins._common import(
     run_command as _run_command,
     make_response as _make_response,
     error_response as _error_response,
+    alert_if as _alert_if
 )
 
 # GB 单位
@@ -31,12 +32,6 @@ _OOM_PATTERN=re.compile(
 
 # 被杀进程提取正则
 _OOM_KILLED_PATTERN=re.compile(r"Killed process (\d+) \((.+?)\)")
-
-
-#方法: 统一告警句式, 避免三处重复
-def _alert_if(condition, template, *args):
-    return template.format(*args) if condition else ""
-
 
 """
 方法: memory_info(), 物理内存画像
