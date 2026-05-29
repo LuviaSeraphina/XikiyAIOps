@@ -20,13 +20,35 @@
   box-sizing: border-box;
 }
 
-body {
+html, body {
   background-color: var(--bg-dark);
   color: var(--text-primary);
+  transition: background-color 0.3s, color 0.3s;
+}
+
+body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Microsoft YaHei', sans-serif;
   font-size: 14px;
   line-height: 1.6;
+}
+
+#app {
+  background-color: var(--bg-dark);
+  min-height: 100vh;
+  transition: background-color 0.3s;
+}
+
+/* 路由切换时的加载遮罩 */
+.el-loading-mask {
+  background-color: var(--bg-dark) !important;
+  transition: background-color 0.3s;
+}
+
+/* 骨架屏 */
+.el-skeleton {
+  --el-skeleton-color: var(--bg-panel) !important;
+  --el-skeleton-to-color: var(--bg-dark) !important;
 }
 
 /* ---- 链接 ---- */
@@ -83,15 +105,168 @@ code {
   border-bottom-color: var(--border-color) !important;
 }
 
+/* 输入框 / 下拉框 / 日期选择器 */
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  background-color: var(--bg-dark) !important;
+  border-color: var(--border-color) !important;
+  box-shadow: none !important;
+  transition: background-color 0.3s, border-color 0.3s;
+}
+.el-input__inner,
+.el-select-dropdown__item {
+  color: var(--text-primary) !important;
+  transition: color 0.3s, background-color 0.3s;
+}
+.el-select-dropdown {
+  background-color: var(--bg-panel) !important;
+  border-color: var(--border-color) !important;
+}
+.el-select-dropdown__item {
+  color: var(--text-primary) !important;
+}
+.el-select-dropdown__item.is-selected {
+  color: var(--color-primary) !important;
+  background-color: rgba(64, 158, 255, 0.1) !important;
+}
+.el-select-dropdown__item.is-hover,
+.el-select-dropdown__item:hover {
+  background-color: rgba(64, 158, 255, 0.08) !important;
+}
+/* select 触发器的 placeholder 和文字 */
+.el-select .el-select__placeholder {
+  color: var(--text-secondary) !important;
+}
+.el-select .el-select__selected-item {
+  color: var(--text-primary) !important;
+}
+
+/* 日期选择器 */
+.el-date-editor .el-input__wrapper {
+  background-color: var(--bg-dark) !important;
+}
+.el-picker-panel {
+  background-color: var(--bg-panel) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+.el-date-table td.available:hover {
+  color: var(--color-primary) !important;
+}
+
+/* 默认按钮 */
+.el-button--default {
+  background-color: var(--bg-dark) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+  transition: background-color 0.3s, border-color 0.3s, color 0.3s;
+}
+.el-button--default:hover {
+  border-color: var(--color-primary) !important;
+  color: var(--color-primary) !important;
+}
+
+/* 进度条底色（风险评分等） */
+.el-progress-bar__outer {
+  background-color: var(--bg-dark) !important;
+}
+
+/* 单选按钮组（进程 TOP N 排序切换） */
+.el-radio-button__inner {
+  background-color: var(--bg-dark) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-secondary) !important;
+  transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+}
+.el-radio-button.is-active .el-radio-button__inner {
+  background-color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+  color: #fff !important;
+}
+.el-radio-button__inner:hover {
+  color: var(--color-primary) !important;
+}
+
+/* 表格 */
+.el-table {
+  --el-table-bg-color: var(--bg-panel) !important;
+  --el-table-tr-bg-color: var(--bg-panel) !important;
+  --el-table-header-bg-color: var(--bg-dark) !important;
+  --el-table-row-hover-bg-color: rgba(64, 158, 255, 0.05) !important;
+  --el-table-border-color: var(--border-color) !important;
+  --el-table-text-color: var(--text-primary) !important;
+  --el-table-header-text-color: var(--text-secondary) !important;
+}
+.el-table th,
+.el-table td {
+  background-color: inherit !important;
+  border-bottom-color: var(--border-color) !important;
+  transition: background-color 0.3s;
+}
+.el-table--striped .el-table__body tr.el-table__row--striped td {
+  background-color: var(--bg-dark) !important;
+}
+
+/* 安全告警面板：数字着色保留 */
+.text-safe    { color: var(--color-safe) !important; }
+.text-warning { color: var(--color-warning) !important; }
+.text-danger  { color: var(--color-danger) !important; }
+
+/* 折叠面板 */
+.el-collapse {
+  border-color: var(--border-color) !important;
+}
+.el-collapse-item__header {
+  background-color: var(--bg-panel) !important;
+  border-bottom-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+  transition: background-color 0.3s, border-color 0.3s;
+}
+.el-collapse-item__wrap {
+  background-color: var(--bg-panel) !important;
+  border-bottom-color: var(--border-color) !important;
+}
+.el-collapse-item__content {
+  color: var(--text-primary) !important;
+}
+
+/* 分页 */
+.el-pagination button,
+.el-pager li {
+  background-color: var(--bg-dark) !important;
+  color: var(--text-primary) !important;
+  transition: background-color 0.3s;
+}
+.el-pager li.active {
+  background-color: var(--color-primary) !important;
+}
+
+/* 时间线 */
+.el-timeline-item__timestamp {
+  color: var(--text-secondary) !important;
+}
+
+/* 空状态 */
+.el-empty {
+  background-color: var(--bg-panel) !important;
+  transition: background-color 0.3s;
+}
+.el-empty__image {
+  opacity: 0.45;
+  filter: grayscale(0.3);
+  transition: opacity 0.3s, filter 0.3s;
+}
+.el-empty__description p {
+  color: var(--text-secondary) !important;
+}
+
 /* ---- 工具类 ---- */
 .flex-center {
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.text-safe    { color: var(--color-safe); }
-.text-warning { color: var(--color-warning); }
-.text-danger  { color: var(--color-danger); }
 
 /* ---- 闪烁光标（流式输出用） ---- */
 @keyframes blink {
