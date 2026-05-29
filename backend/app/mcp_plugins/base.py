@@ -8,6 +8,7 @@ MCP 插件注册中心 — 统一管理所有 Tool 的注册、发现与调用
 4. 所有 Tool 返回统一结构: {tool, timestamp, risk_level, data, summary}
 """
 from enum import Enum
+from app.core.permission_agent import check_permission
 
 
 class RiskLevel(str, Enum):
@@ -72,13 +73,16 @@ class MCPPluginRegistry:
         return [t for t in self._tools.values() if risk_order[t.risk_level]<=max_level]
 
     def call(self, name, **kwargs):
-        """统一调用入口, 自动校验 risk_level"""
+        """统一调用入口, 自动校验 risk_level + 权限预检"""
         tool=self._tools.get(name)
         if not tool:
             return {"tool": name, "risk_level": "error", "data": {}, "summary": {"error": "Tool not found: {}".format(name)}}
-        #安全护栏接入点: Phase 3 在这里做意图过滤和权限预检
-        if tool.risk_level==RiskLevel.DANGEROUS:
-            return {"tool": name, "risk_level": "dangerous", "data": {}, "summary": {"error": "危险操作需要用户二次确认"}}
+
+        #安全护栏: 权限预检
+        allowed, reason=check_permission(tool.risk_level.value)
+        if not allowed:
+            return {"tool": name, "risk_level": "blocked", "data": {}, "summary": {"error": reason}}
+
         return tool.execute(**kwargs)
 
     @property
