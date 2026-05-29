@@ -1,0 +1,23 @@
+/* 全局样式 — 将在 Phase 2 中完善 */
+:root {
+  --color-safe: #67C23A;
+  --color-warning: #E6A23C;
+  --color-danger: #F56C6C;
+  --color-primary: #409EFF;
+  --bg-dark: #1d1e1f;
+  --bg-panel: #2a2b2c;
+  --text-primary: #e0e0e0;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--bg-dark);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+}
