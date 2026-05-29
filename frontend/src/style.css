@@ -1,0 +1,114 @@
+/* ========== SRE-Agent 全局样式 ========== */
+
+:root {
+  --color-safe: #67C23A;
+  --color-warning: #E6A23C;
+  --color-danger: #F56C6C;
+  --color-primary: #409EFF;
+  --bg-dark: #1d1e1f;
+  --bg-panel: #2a2b2c;
+  --text-primary: #e0e0e0;
+  --text-secondary: #909399;
+  --border-color: #3a3b3d;
+  --sidebar-width: 220px;
+  --header-height: 50px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--bg-dark);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* ---- 链接 ---- */
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+a:hover {
+  opacity: 0.85;
+}
+
+/* ---- 暗色滚动条 ---- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #555;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #777;
+}
+
+/* ---- 代码块 ---- */
+pre {
+  background: #1a1b1c;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+code {
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 13px;
+}
+
+/* ---- Element Plus 暗色覆写 ---- */
+.el-menu--vertical {
+  border-right: none !important;
+}
+.el-card {
+  background-color: var(--bg-panel) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+.el-card__header {
+  border-bottom-color: var(--border-color) !important;
+}
+
+/* ---- 工具类 ---- */
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.text-safe    { color: var(--color-safe); }
+.text-warning { color: var(--color-warning); }
+.text-danger  { color: var(--color-danger); }
+
+/* ---- 闪烁光标（流式输出用） ---- */
+@keyframes blink {
+  0%, 50%  { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+.cursor-blink::after {
+  content: '▌';
+  animation: blink 0.5s infinite;
+  color: var(--color-primary);
+}
+
+/* ---- 气泡入场动画 ---- */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in-up {
+  animation: fadeInUp 0.3s ease;
+}
