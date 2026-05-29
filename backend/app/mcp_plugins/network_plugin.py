@@ -65,6 +65,7 @@ def _get_info(result):
 
 """
 方法: network_listening_ports(), 解析ss返回所有 TCP/UDP 监听端口, 端口号/协议/绑定IP/关联进程
+
 """
 def network_listening_ports():
     try:
@@ -125,6 +126,7 @@ def _check_connection_alert(states):
 
 """
 方法: network_connections_summary(), 监控和分析服务器网络连接状态
+
 """    
 def network_connections_summary():
     try:
@@ -204,6 +206,7 @@ def _parse_ip_stats(result):
 
 """
 方法: network_interface_stats(), 网卡流量与错误统计, 识别丢包/错误异常
+
 """
 def network_interface_stats():
     try:

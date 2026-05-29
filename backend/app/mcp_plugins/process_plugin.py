@@ -34,6 +34,7 @@ process_inspect_schema={
 
 """
 方法: process_inspect_handler(), 返回进程列表，支持按状态过滤、按 CPU/内存(mem)排序
+
 """
 def process_inspect_handler(filter_state="", sort_by="cpu", top_n=10):
     try:

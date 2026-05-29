@@ -89,6 +89,7 @@ def _match_auth_lines(lines):
 
 """
 方法: security_auth_failures(), 多源登录失败检测, 统计近 hours 小时内的登录失败事件, 返回按 IP/用户聚合的计数和细分类别"
+
 """
 def security_auth_failures(hours=24):
     try:
@@ -128,6 +129,7 @@ def security_auth_failures(hours=24):
 
 """
 方法: security_active_sessions(), 活跃会话枚举, 解析 who -u 输出, 返回登录会话列表
+
 """
 def _parse_who_output():
     output=_run_command(["who", "-u"], timeout=5)
@@ -162,6 +164,7 @@ def _parse_ssh_connections():
 
 """
 方法: security_active_sessions(), 返回当前所有活跃登录会话和 SSH 连接
+
 """
 def security_active_sessions():
     try:
@@ -230,6 +233,7 @@ def _scan_suid(paths):
 
 """
 方法: security_suid_scan(), SUID/SGID 后门扫描, 识别非白名单的提权文件
+
 """
 def security_suid_scan(paths=None):
     try:
@@ -280,6 +284,7 @@ def _parse_crontab(user):
 
 """
 方法: security_crontab_audit(), 审计所有用户的 crontab, 检测可疑定时任务
+
 """
 def security_crontab_audit():
     try:
@@ -357,6 +362,7 @@ def _parse_lsmod():
 
 """
 方法: security_kernel_modules(), 审计已加载内核模块, 识别非标准/可疑模块
+
 """
 def security_kernel_modules():
     try:

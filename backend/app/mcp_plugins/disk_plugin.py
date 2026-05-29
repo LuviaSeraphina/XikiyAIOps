@@ -29,6 +29,7 @@ disk_inspect_schema={
 
 """
 方法: disk_inspect_handler(), 获取磁盘信息
+
 """
 def disk_inspect_handler(path="/"):
     try:
