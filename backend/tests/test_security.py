@@ -31,8 +31,8 @@ from app.core.permission_agent import (
     setup_instructions
 )
 from app.core.rca_analyzer import (
-    detect_anomaly_3sigma, detect_anomaly_iqr,
-    detect_anomaly_moving_average, detect_anomaly_combined,
+    ThreeSigmaDetector, IQRDetector, MovingAverageDetector,
+    IsolationForestDetector, detect_anomaly_combined,
     compute_health_score, run_rca_analysis
 )
 
@@ -281,34 +281,33 @@ class TestAnomalyDetection:
     """异常检测算法"""
 
     def test_3sigma_normal(self):
-        values = [1.0, 1.2, 1.1, 1.3, 1.0, 1.2, 1.1]
-        result = detect_anomaly_3sigma(values)
+        values=[1.0, 1.2, 1.1, 1.3, 1.0, 1.2, 1.1]
+        result=ThreeSigmaDetector(values).fit().summary()
         assert result["anomaly_count"] == 0
 
     def test_3sigma_anomaly(self):
-        # 8.5 相对于均值 ~2.19 (std ≈ 2.66); 用 2-sigma 确保捕获
-        values = [1.0, 1.2, 1.1, 1.3, 8.5, 1.0, 1.2]
-        result = detect_anomaly_3sigma(values, threshold=2.0)
+        values=[1.0, 1.2, 1.1, 1.3, 8.5, 1.0, 1.2]
+        result=ThreeSigmaDetector(values, threshold=2.0).fit().summary()
         assert result["anomaly_count"] >= 1
         assert 4 in result["anomaly_indices"]
 
     def test_iqr_anomaly(self):
-        values = [10, 12, 11, 13, 95, 10, 12]
-        result = detect_anomaly_iqr(values)
+        values=[10, 12, 11, 13, 95, 10, 12]
+        result=IQRDetector(values).fit().summary()
         assert result["anomaly_count"] >= 1
 
     def test_moving_avg_anomaly(self):
-        values = [10, 11, 10, 12, 10, 50, 11, 10, 12]
-        result = detect_anomaly_moving_average(values, window=3)
+        values=[10, 11, 10, 12, 10, 50, 11, 10, 12]
+        result=MovingAverageDetector(values, window=3).fit().summary()
         assert result["anomaly_count"] >= 1
 
     def test_combined_voting(self):
-        values = [1.0, 1.2, 1.1, 1.3, 8.5, 1.0, 1.2]
-        result = detect_anomaly_combined(values)
+        values=[1.0, 1.2, 1.1, 1.3, 8.5, 1.0, 1.2]
+        result=detect_anomaly_combined(values)
         assert "consensus_anomalies" in result
 
     def test_insufficient_data(self):
-        result = detect_anomaly_3sigma([1.0, 2.0])
+        result=ThreeSigmaDetector([1.0, 2.0]).fit().summary()
         assert "数据点不足" in result.get("detail", "")
 
 
