@@ -79,7 +79,7 @@ class MCPPluginRegistry:
             return {"tool": name, "risk_level": "error", "data": {}, "summary": {"error": "Tool not found: {}".format(name)}}
 
         #安全护栏: 权限预检
-        allowed, reason=check_permission(tool.risk_level.value)
+        allowed, reason,_=check_permission(tool.risk_level.value)
         if not allowed:
             return {"tool": name, "risk_level": "blocked", "data": {}, "summary": {"error": reason}}
 
@@ -217,6 +217,22 @@ def _auto_register_all(reg):
         description="内核启动参数审计, 检查关键安全参数",
         handler=_safe_import("app.mcp_plugins.system_plugin", "system_boot_params"),
         risk_level=RiskLevel.READ_ONLY,
+    ))
+    reg.register(MCPTool(
+        name="health_config_get",
+        description="获取当前健康评分权重和阈值配置, 返回完整 JSON",
+        handler=_safe_import("app.mcp_plugins.health_config_plugin", "health_config_get_handler"),
+        risk_level=RiskLevel.READ_ONLY,
+    ))
+    reg.register(MCPTool(
+        name="health_config_set",
+        description="修改健康评分配置中的一项阈值或权重, 传入 dot-path (如 thresholds.cpu.1.max) 和新值",
+        handler=_safe_import("app.mcp_plugins.health_config_plugin", "health_config_set_handler"),
+        risk_level=RiskLevel.RESTRICTED,
+        parameters={
+            "key_path": {"type": "string", "description": "配置路径, 用 . 分隔, 如 'thresholds.cpu.1.max' 或 'weights.cpu'"},
+            "value": {"type": "number", "description": "新值, 如 80 或 0.3"},
+        },
     ))
 
 
