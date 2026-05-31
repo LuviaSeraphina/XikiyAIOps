@@ -57,6 +57,9 @@ class ThreeSigmaDetector:
     
     # 返回结构化摘要 dict
     def summary(self):
+        if self.mean is None:
+            return {"anomaly_indices": [], "anomaly_count": 0, "mean": 0, "std": 0,
+                    "detail": "数据点不足 (需 >= 3)"}
         n=len(self.values)
         return {
             "anomaly_indices": self._indices if self._indices else [],
