@@ -22,7 +22,10 @@ async def chat_send(request: Request):
     history=body.get("history", None)
 
     async def sse_generator():
-        async for event in chat_stream(user_input, history):
+        async for event in chat_stream(user_input, history):  # type: ignore[attr-defined]
+            # 客户端断连 -> 立即中止, 不浪费 Ollama 算力
+            if await request.is_disconnected():
+                break
             yield "event: {}\ndata: {}\n\n".format(
                 event["event"],
                 json.dumps(event["data"], ensure_ascii=False),
