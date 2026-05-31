@@ -2,20 +2,33 @@
   <div class="chat-page">
     <!-- 欢迎引导 -->
     <div v-if="store.messages.length === 0" class="welcome">
-      <div class="welcome-icon">🤖</div>
-      <h2>你好，我是麒麟安全运维 Agent</h2>
-      <p class="welcome-desc">通过自然语言对话，我可以帮你感知系统状态、排查故障、执行运维操作</p>
-      <div class="welcome-actions">
-        <el-card
+      <div class="welcome-hero">
+        <div class="welcome-glow" />
+        <div class="welcome-icon">
+          <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+            <rect width="64" height="64" rx="18" fill="rgba(59,130,246,0.1)" />
+            <path d="M32 16L18 26v12l14 10 14-10V26L32 16z" stroke="#3b82f6" stroke-width="2.5" stroke-linejoin="round" fill="none" />
+            <circle cx="32" cy="30" r="5" fill="#3b82f6" />
+            <path d="M22 40l10 7 10-7" stroke="#60a5fa" stroke-width="1.5" stroke-linecap="round" fill="none" />
+          </svg>
+        </div>
+        <h1 class="welcome-title">麒麟安全运维 Agent</h1>
+        <p class="welcome-desc">通过自然语言对话，感知系统状态、排查故障、执行运维操作</p>
+      </div>
+
+      <div class="welcome-cards">
+        <button
           v-for="q in quickStarts"
           :key="q.label"
-          shadow="hover"
-          class="welcome-card"
+          class="quick-card"
           @click="store.sendMessage(q.text)"
         >
-          <span class="card-icon">{{ q.icon }}</span>
-          <span>{{ q.label }}</span>
-        </el-card>
+          <span class="quick-icon">{{ q.icon }}</span>
+          <div class="quick-info">
+            <span class="quick-label">{{ q.label }}</span>
+            <span class="quick-hint">{{ q.hint }}</span>
+          </div>
+        </button>
       </div>
     </div>
 
@@ -27,6 +40,13 @@
         :message="msg"
         :streaming="store.streaming && msg.id === lastAgentId"
       />
+
+      <!-- 思考中指示器 -->
+      <div v-if="store.streaming && !lastAgentContent" class="thinking-indicator">
+        <span class="thinking-dot" />
+        <span class="thinking-dot" />
+        <span class="thinking-dot" />
+      </div>
     </div>
 
     <!-- 确认弹窗 -->
@@ -55,10 +75,21 @@ const lastAgentId = computed(() => {
   return ''
 })
 
+const lastAgentContent = computed(() => {
+  const msgs = store.messages
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i].role === 'assistant') return msgs[i].content
+  }
+  return ''
+})
+
 const quickStarts = [
-  { icon: '🔍', label: '查看系统状态', text: '帮我看看当前系统状态' },
-  { icon: '🧹', label: '检查磁盘空间', text: '帮我检查磁盘空间使用情况' },
-  { icon: '📋', label: '查看进程信息', text: '帮我查看占用最高的进程' },
+  { icon: '🔍', label: '查看系统状态', hint: 'CPU、内存、磁盘等', text: '帮我看看当前系统状态' },
+  { icon: '🧹', label: '检查磁盘空间', hint: '查看各分区使用率', text: '帮我检查磁盘空间使用情况' },
+  { icon: '📋', label: '查看进程信息', hint: 'TOP N 进程排行', text: '帮我查看占用最高的进程' },
+  { icon: '🛡️', label: '安全审计', hint: '检查登录失败记录', text: '帮我检查最近的登录失败情况' },
+  { icon: '🌐', label: '网络状态', hint: '连接数和监听端口', text: '帮我查看当前网络连接状态' },
+  { icon: '📊', label: '健康评分', hint: '系统综合健康评估', text: '帮我生成系统健康评分报告' },
 ]
 
 // 自动滚动到底部
@@ -72,6 +103,18 @@ watch(
     })
   },
 )
+
+// 持续流式输出时也滚动
+watch(
+  () => lastAgentContent.value?.length,
+  () => {
+    nextTick(() => {
+      if (listRef.value) {
+        listRef.value.scrollTo({ top: listRef.value.scrollHeight, behavior: 'auto' })
+      }
+    })
+  },
+)
 </script>
 
 <style scoped>
@@ -79,55 +122,127 @@ watch(
   display: flex;
   flex-direction: column;
   height: calc(100vh - var(--header-height));
+  max-width: 900px;
+  margin: 0 auto;
 }
 
-/* ---- 欢迎引导 ---- */
+/* ---- Welcome ---- */
 .welcome {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 40px 20px;
-  text-align: center;
-}
-.welcome-icon {
-  font-size: 56px;
-  margin-bottom: 16px;
-}
-.welcome h2 {
-  font-size: 20px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-.welcome-desc {
-  color: var(--text-secondary);
-  max-width: 400px;
-  margin-bottom: 24px;
-}
-.welcome-actions {
-  display: flex;
-  gap: 12px;
-}
-.welcome-card {
-  cursor: pointer;
-  padding: 12px 20px;
-  text-align: center;
-  transition: transform 0.2s;
-}
-.welcome-card:hover {
-  transform: translateY(-2px);
-}
-.card-icon {
-  display: block;
-  font-size: 24px;
-  margin-bottom: 4px;
+  padding: 60px 24px;
 }
 
-/* ---- 消息列表 ---- */
+.welcome-hero {
+  text-align: center;
+  margin-bottom: 40px;
+  position: relative;
+}
+.welcome-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--color-accent-glow), transparent 70%);
+  pointer-events: none;
+}
+.welcome-icon {
+  position: relative;
+  margin-bottom: 20px;
+  display: inline-flex;
+}
+.welcome-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  position: relative;
+}
+.welcome-desc {
+  font-size: 14px;
+  color: var(--text-secondary);
+  max-width: 360px;
+  position: relative;
+}
+
+/* Quick cards */
+.welcome-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  max-width: 640px;
+  width: 100%;
+}
+
+.quick-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-primary);
+  transition: all var(--duration-normal) var(--ease-out);
+}
+.quick-card:hover {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.quick-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+.quick-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.quick-label {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.quick-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+/* ---- Message list ---- */
 .message-list {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 20px;
+  padding: 20px 24px;
+  scroll-behavior: smooth;
 }
+
+/* ---- Thinking indicator ---- */
+.thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.thinking-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  animation: blink 1.2s infinite;
+}
+.thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dot:nth-child(3) { animation-delay: 0.4s; }
 </style>

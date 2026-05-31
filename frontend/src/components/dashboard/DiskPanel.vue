@@ -1,8 +1,16 @@
 <template>
-  <el-card shadow="hover" class="panel">
-    <template #header><span class="panel-title">💾 磁盘使用率</span></template>
+  <div class="panel-card">
+    <div class="panel-header">
+      <h3 class="panel-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+        </svg>
+        磁盘使用率
+      </h3>
+    </div>
     <div ref="chartRef" class="chart-box"></div>
-  </el-card>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -16,9 +24,9 @@ let chart: echarts.ECharts | null = null
 let resizeObserver: ResizeObserver | null = null
 
 function barColor(pct: number): string {
-  if (pct < 70) return '#67C23A'
-  if (pct < 90) return '#E6A23C'
-  return '#F56C6C'
+  if (pct >= 90) return '#ef4444'
+  if (pct >= 70) return '#f59e0b'
+  return '#22c55e'
 }
 
 function updateChart() {
@@ -32,45 +40,61 @@ function updateChart() {
       trigger: 'axis',
       confine: true,
       appendToBody: true,
-      backgroundColor: 'rgba(30, 32, 34, 0.96)',
-      borderColor: '#3a3b3d',
-      textStyle: { color: '#e0e0e0', fontSize: 12 },
-      extraCssText: 'max-width: 260px; white-space: normal; word-break: break-all; border-radius: 6px; padding: 8px 12px;',
+      backgroundColor: 'rgba(17, 22, 30, 0.96)',
+      borderColor: 'rgba(255,255,255,0.1)',
+      textStyle: { color: '#e8ecf1', fontSize: 12 },
+      extraCssText: 'max-width: 280px; white-space: normal; word-break: break-all; border-radius: 10px; padding: 10px 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.6);',
       formatter: (params: { dataIndex: number }[]) => {
         const i = params[0].dataIndex
         const d = store.disks[i]
         return `
-          <div style="font-weight:600;margin-bottom:4px;">${d.mount_point} <span style="color:#909399;font-weight:400;">(${d.filesystem})</span></div>
-          <div>总量: <b>${d.total_gb} GB</b></div>
-          <div>已用: <b>${d.used_gb} GB</b> | 可用: ${d.free_gb} GB</div>
-          <div>使用率: <b style="color:${barColor(d.usage_percent)}">${d.usage_percent}%</b> | inode: ${d.inode_percent}%</div>
+          <div style="font-weight:600;margin-bottom:6px;font-size:13px;">${d.mount_point} <span style="color:#8896a7;font-weight:400;font-size:11px;">(${d.filesystem})</span></div>
+          <div style="display:flex;gap:16px;margin-bottom:4px;">
+            <span>总量 <b>${d.total_gb} GB</b></span>
+            <span>已用 <b>${d.used_gb} GB</b></span>
+          </div>
+          <div style="display:flex;gap:16px;">
+            <span>可用 ${d.free_gb} GB</span>
+            <span>inode ${d.inode_percent}%</span>
+          </div>
+          <div style="margin-top:6px;font-weight:600;color:${barColor(d.usage_percent)}">使用率 ${d.usage_percent}%</div>
         `
       },
     },
-    grid: { left: 50, right: 20, top: 20, bottom: 40 },
+    grid: { left: 45, right: 20, top: 10, bottom: 35 },
     xAxis: {
       type: 'category',
       data: names,
-      axisLabel: { color: '#909399', rotate: names.length > 4 ? 15 : 0 },
+      axisLabel: { color: '#8896a7', fontSize: 11, rotate: names.length > 4 ? 15 : 0 },
+      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } },
+      axisTick: { show: false },
     },
     yAxis: {
       type: 'value',
       max: 100,
-      axisLabel: { formatter: '{value}%', color: '#909399' },
+      axisLabel: { formatter: '{value}%', color: '#8896a7', fontSize: 11 },
+      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)' } },
     },
     series: [{
       type: 'bar',
       data: values.map((v) => ({
         value: v,
-        itemStyle: { color: barColor(v), borderRadius: [4, 4, 0, 0] },
+        itemStyle: {
+          color: barColor(v),
+          borderRadius: [6, 6, 0, 0],
+        },
       })),
-      barMaxWidth: 50,
+      barMaxWidth: 56,
+      emphasis: {
+        itemStyle: { color: '#3b82f6' },
+      },
       markLine: {
         silent: true,
         symbol: 'none',
+        lineStyle: { type: 'dashed', width: 1 },
         data: [
-          { yAxis: 70, lineStyle: { color: '#E6A23C', type: 'dashed' } },
-          { yAxis: 90, lineStyle: { color: '#F56C6C', type: 'dashed' } },
+          { yAxis: 70, lineStyle: { color: '#f59e0b' }, label: { formatter: '70%', color: '#f59e0b', fontSize: 10 } },
+          { yAxis: 90, lineStyle: { color: '#ef4444' }, label: { formatter: '90%', color: '#ef4444', fontSize: 10 } },
         ],
       },
     }],
@@ -81,11 +105,7 @@ onMounted(() => {
   if (!chartRef.value) return
   chart = echarts.init(chartRef.value)
   updateChart()
-
-  // 自适应容器大小
-  resizeObserver = new ResizeObserver(() => {
-    chart?.resize()
-  })
+  resizeObserver = new ResizeObserver(() => chart?.resize())
   resizeObserver.observe(chartRef.value)
 })
 
@@ -98,10 +118,35 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.panel { height: 100%; }
+.panel-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: border-color var(--duration-normal) var(--ease-out);
+}
+.panel-card:hover {
+  border-color: var(--border-emphasis);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
 .chart-box {
   width: 100%;
-  height: 240px;
+  height: 260px;
+  padding: 8px 4px 4px;
 }
-.panel-title { font-size: 15px; font-weight: 600; }
 </style>

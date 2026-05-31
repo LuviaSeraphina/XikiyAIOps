@@ -3,7 +3,7 @@
     <!-- 筛选器 -->
     <AuditFilter @filter-change="onFilterChange" />
 
-    <!-- 左：时间线 | 右：详情 -->
+    <!-- 主内容：时间线 + 详情 -->
     <div class="audit-body">
       <div class="timeline-panel">
         <AuditTimeline
@@ -75,11 +75,13 @@ onMounted(() => {
 .timeline-panel {
   flex: 6;
   overflow-y: auto;
-  border-right: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-subtle);
+  background: var(--bg-root);
 }
 
 .detail-panel {
   flex: 4;
   overflow-y: auto;
+  background: var(--bg-elevated);
 }
 </style>

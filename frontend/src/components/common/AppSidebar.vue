@@ -1,107 +1,142 @@
 <template>
-  <div class="sidebar">
-    <!-- Logo 区 -->
-    <div class="sidebar-logo">
-      <span class="logo-icon">🛡️</span>
-      <span class="logo-text">SRE-Agent</span>
+  <aside class="sidebar" :class="{ collapsed }">
+    <!-- Logo -->
+    <div class="sidebar-brand">
+      <div class="brand-icon">
+        <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+          <rect width="32" height="32" rx="8" fill="var(--color-accent)" />
+          <path d="M16 6L8 12v8l8 6 8-6v-8L16 6z" stroke="#fff" stroke-width="1.8" stroke-linejoin="round" fill="none" />
+          <circle cx="16" cy="16" r="3" fill="#fff" />
+        </svg>
+      </div>
+      <transition name="fade-up">
+        <div v-if="!collapsed" class="brand-text">
+          <span class="brand-name">SRE-Agent</span>
+          <span class="brand-sub">麒麟安全运维</span>
+        </div>
+      </transition>
     </div>
 
-    <!-- 菜单 -->
-    <el-menu
-      :default-active="currentRoute"
-      router
-      background-color="var(--sidebar-bg)"
-      text-color="var(--text-primary)"
-      active-text-color="var(--color-primary)"
-    >
-      <el-menu-item index="/chat">
-        <el-icon><ChatDotRound /></el-icon>
-        <span>智能对话</span>
-      </el-menu-item>
-      <el-menu-item index="/dashboard">
-        <el-icon><Odometer /></el-icon>
-        <span>系统仪表盘</span>
-      </el-menu-item>
-      <el-menu-item index="/audit">
-        <el-icon><Document /></el-icon>
-        <span>审计日志</span>
-      </el-menu-item>
-    </el-menu>
+    <!-- 导航菜单 -->
+    <nav class="sidebar-nav">
+      <router-link
+        v-for="item in navItems"
+        :key="item.path"
+        :to="item.path"
+        class="nav-item"
+        :class="{ active: currentRoute === item.path }"
+        :title="collapsed ? item.label : ''"
+      >
+        <span class="nav-icon" v-html="item.icon" />
+        <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
+        <span v-if="!collapsed && currentRoute === item.path" class="nav-indicator" />
+      </router-link>
+    </nav>
 
-    <!-- 底部信息 -->
+    <!-- 底部 -->
     <div class="sidebar-footer">
-      <span>麒麟 OS · 安全运维 Agent v1.0</span>
-      <el-button class="cl-btn" size="small" text @click="toggleCL">
-        <el-icon :size="16"><Moon v-if="!isLight" /><Sunny v-else /></el-icon>
-      </el-button>
+      <button class="theme-toggle" @click="toggleCL" :title="isLight ? '切换暗色' : '切换亮色'">
+        <svg v-if="isLight" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+          <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+        </svg>
+        <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
+      <transition name="fade-up">
+        <span v-if="!collapsed" class="footer-version">v1.0</span>
+      </transition>
     </div>
-  </div>
+  </aside>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { ChatDotRound, Odometer, Document, Sunny, Moon } from '@element-plus/icons-vue'
+
+const props = defineProps<{ collapsed: boolean }>()
+const emit = defineEmits<{ 'update:collapsed': [val: boolean] }>()
 
 const route = useRoute()
 const currentRoute = computed(() => route.path)
 
-// ---- CL: 主题切换（首次跟随系统默认） ----
+const navItems = [
+  {
+    path: '/chat',
+    label: '智能对话',
+    icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+    </svg>`,
+  },
+  {
+    path: '/dashboard',
+    label: '仪表盘',
+    icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
+      <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+    </svg>`,
+  },
+  {
+    path: '/audit',
+    label: '审计日志',
+    icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+    </svg>`,
+  },
+]
+
+// ---- 主题 ----
 const isLight = ref(false)
 const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
 
 function detectSystemTheme(): boolean {
-  // prefers-color-scheme: dark → 系统暗色 → isLight=false
   return !mediaQuery.matches
 }
 
-interface ThemeVars {
-  '--bg-dark': string
-  '--bg-panel': string
-  '--sidebar-bg': string
-  '--text-primary': string
-  '--text-secondary': string
-  '--border-color': string
-}
-
-const darkTheme: ThemeVars = {
-  '--bg-dark': '#1d1e1f',
-  '--bg-panel': '#202122',
-  '--sidebar-bg': '#1f2021',
-  '--text-primary': '#e0e0e0',
-  '--text-secondary': '#909399',
-  '--border-color': '#333435',
-}
-
-const lightTheme: ThemeVars = {
-  '--bg-dark': 'rgb(235, 239, 243)',
-  '--bg-panel': 'rgb(248, 250, 252)',
-  '--sidebar-bg': 'rgb(222, 228, 236)',
-  '--text-primary': '#000000',
-  '--text-secondary': '#606266',
-  '--border-color': '#c8cdd4',
-}
-
-function applyTheme(vars: ThemeVars) {
+function applyTheme(light: boolean) {
   const root = document.documentElement
-  ;(Object.keys(vars) as (keyof ThemeVars)[]).forEach((key) => {
-    root.style.setProperty(key, vars[key])
-  })
+  if (light) {
+    root.style.setProperty('--bg-root', '#f1f5f9')
+    root.style.setProperty('--bg-elevated', '#ffffff')
+    root.style.setProperty('--bg-surface', '#f8fafc')
+    root.style.setProperty('--bg-surface-hover', '#f1f5f9')
+    root.style.setProperty('--text-primary', '#0f172a')
+    root.style.setProperty('--text-secondary', '#475569')
+    root.style.setProperty('--text-tertiary', '#94a3b8')
+    root.style.setProperty('--border-subtle', 'rgba(0,0,0,0.04)')
+    root.style.setProperty('--border-default', 'rgba(0,0,0,0.08)')
+    root.style.setProperty('--border-emphasis', 'rgba(0,0,0,0.14)')
+    root.style.setProperty('--bg-glass', 'rgba(255,255,255,0.82)')
+  } else {
+    root.style.setProperty('--bg-root', '#0b0f15')
+    root.style.setProperty('--bg-elevated', '#11161e')
+    root.style.setProperty('--bg-surface', '#161c26')
+    root.style.setProperty('--bg-surface-hover', '#1c2330')
+    root.style.setProperty('--text-primary', '#e8ecf1')
+    root.style.setProperty('--text-secondary', '#8896a7')
+    root.style.setProperty('--text-tertiary', '#5c6a7d')
+    root.style.setProperty('--border-subtle', 'rgba(255,255,255,0.06)')
+    root.style.setProperty('--border-default', 'rgba(255,255,255,0.09)')
+    root.style.setProperty('--border-emphasis', 'rgba(255,255,255,0.14)')
+    root.style.setProperty('--bg-glass', 'rgba(22,28,38,0.82)')
+  }
 }
 
 function toggleCL() {
   isLight.value = !isLight.value
-  applyTheme(isLight.value ? lightTheme : darkTheme)
+  applyTheme(isLight.value)
 }
 
-// 首次加载：跟随系统主题
 onMounted(() => {
   isLight.value = detectSystemTheme()
-  applyTheme(isLight.value ? lightTheme : darkTheme)
-  // 监听系统主题变更，自动跟随
+  applyTheme(isLight.value)
   mediaQuery.addEventListener('change', () => {
     isLight.value = detectSystemTheme()
-    applyTheme(isLight.value ? lightTheme : darkTheme)
+    applyTheme(isLight.value)
   })
 })
 </script>
@@ -110,49 +145,136 @@ onMounted(() => {
 .sidebar {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  background-color: var(--sidebar-bg);
+  width: var(--sidebar-width);
+  height: 100vh;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border-subtle);
+  transition: width var(--duration-slow) var(--ease-out);
+  flex-shrink: 0;
+  z-index: 100;
+}
+.sidebar.collapsed {
+  width: var(--sidebar-collapsed);
 }
 
-.sidebar-logo {
+/* ---- Brand ---- */
+.sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 18px 20px;
-  border-bottom: 1px solid var(--border-color);
+  gap: 12px;
+  padding: 20px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  min-height: var(--header-height);
 }
-
-.logo-icon {
-  font-size: 22px;
+.brand-icon {
+  flex-shrink: 0;
+  display: flex;
 }
-
-.logo-text {
-  font-size: 18px;
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.brand-name {
+  font-size: 16px;
   font-weight: 700;
-  color: var(--color-primary);
-  letter-spacing: 1px;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+}
+.brand-sub {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 400;
 }
 
-.el-menu {
+/* ---- Nav ---- */
+.sidebar-nav {
   flex: 1;
-  border-right: none;
-  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
-.el-menu-item {
-  transition: all 0.2s ease;
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 13.5px;
+  font-weight: 500;
+  position: relative;
+  transition: all var(--duration-fast) var(--ease-out);
+  white-space: nowrap;
+  overflow: hidden;
 }
-.el-menu-item:hover {
-  background-color: rgba(64, 158, 255, 0.08) !important;
+.nav-item:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+.nav-item.active {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+.nav-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}
+.nav-label {
+  flex: 1;
+}
+.nav-indicator {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  border-radius: 3px;
+  background: var(--color-accent);
 }
 
+/* ---- Footer ---- */
 .sidebar-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 20px;
-  font-size: 11px;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: transparent;
   color: var(--text-secondary);
-  border-top: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+  flex-shrink: 0;
+}
+.theme-toggle:hover {
+  border-color: var(--border-emphasis);
+  color: var(--text-primary);
+  background: var(--bg-surface);
+}
+.footer-version {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
 }
 </style>

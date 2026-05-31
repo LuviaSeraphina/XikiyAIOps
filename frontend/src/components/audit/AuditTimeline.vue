@@ -1,37 +1,45 @@
 <template>
   <div class="audit-timeline" v-loading="loading">
-    <el-empty v-if="!loading && logs.length === 0" description="暂无审计记录" />
+    <!-- Empty state -->
+    <div v-if="!loading && logs.length === 0" class="empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+      </svg>
+      <span>暂无审计记录</span>
+    </div>
 
-    <el-timeline v-else>
-      <el-timeline-item
+    <!-- Timeline -->
+    <div v-else class="timeline-list">
+      <div
         v-for="log in logs"
         :key="log.id"
-        :timestamp="formatTime(log.timestamp)"
-        :color="riskColor(log.risk_level)"
-        placement="top"
+        class="timeline-item"
+        :class="{ selected: selectedId === log.id }"
+        @click="emit('select', log)"
       >
-        <div
-          class="timeline-card"
-          :class="{ selected: selectedId === log.id }"
-          @click="emit('select', log)"
-        >
-          <div class="card-header">
-            <StatusBadge :risk-level="log.risk_level" size="small" />
-            <span class="card-user">{{ log.user }}</span>
+        <div class="timeline-dot" :style="{ background: riskColor(log.risk_level) }" />
+        <div class="timeline-card">
+          <div class="card-top">
+            <StatusBadge :risk-level="log.risk_level" size="sm" />
+            <span class="card-time">{{ formatTime(log.timestamp) }}</span>
           </div>
           <p class="card-summary">{{ log.stages[0].raw_input }}</p>
           <div class="card-meta">
-            <span v-if="log.stages[3].rules_hit.length">
-              命中: {{ log.stages[3].rules_hit.join(', ') }}
+            <span class="meta-user">{{ log.user }}</span>
+            <span class="meta-sep">·</span>
+            <span v-if="log.stages[3].rules_hit.length" class="meta-rules">
+              {{ log.stages[3].rules_hit.join(', ') }}
             </span>
-            <span v-if="log.stages[4].duration_ms">
-              耗时: {{ log.stages[4].duration_ms }}ms
+            <span v-if="log.stages[4].duration_ms" class="meta-duration">
+              {{ log.stages[4].duration_ms }}ms
             </span>
           </div>
         </div>
-      </el-timeline-item>
-    </el-timeline>
+      </div>
+    </div>
 
+    <!-- Pagination -->
     <div v-if="total > size" class="pagination">
       <el-pagination
         background
@@ -46,7 +54,6 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 import type { AuditLog, RiskLevel } from '@/types'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 
@@ -66,9 +73,9 @@ const emit = defineEmits<{
 
 function riskColor(level: RiskLevel): string {
   switch (level) {
-    case 'dangerous':  return '#F56C6C'
-    case 'restricted': return '#E6A23C'
-    default:           return '#67C23A'
+    case 'dangerous':  return '#ef4444'
+    case 'restricted': return '#f59e0b'
+    default:           return '#22c55e'
   }
 }
 
@@ -83,56 +90,120 @@ function formatTime(ts: string): string {
 
 <style scoped>
 .audit-timeline {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+/* Timeline */
+.timeline-list {
   flex: 1;
   overflow-y: auto;
   padding: 16px 20px;
 }
 
-.timeline-card {
-  background: var(--bg-panel);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 10px 14px;
-  cursor: pointer;
-  transition: border-color 0.2s;
-}
-.timeline-card:hover {
-  border-color: var(--color-primary);
-}
-.timeline-card.selected {
-  border-color: var(--color-primary);
-  background: rgba(64, 158, 255, 0.06);
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-.card-user {
-  font-size: 13px;
-  font-weight: 600;
-}
-.card-summary {
-  font-size: 13px;
-  margin: 0 0 6px;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-}
-.card-meta {
+.timeline-item {
   display: flex;
   gap: 12px;
+  position: relative;
+  cursor: pointer;
+}
+.timeline-item:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 24px;
+  bottom: -16px;
+  width: 1px;
+  background: var(--border-subtle);
+}
+
+.timeline-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 10px;
+  flex-shrink: 0;
+  z-index: 1;
+  box-shadow: 0 0 0 3px var(--bg-root);
+}
+
+.timeline-card {
+  flex: 1;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.timeline-card:hover {
+  border-color: var(--border-emphasis);
+}
+.timeline-item.selected .timeline-card {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.card-time {
   font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.card-summary {
+  font-size: 13px;
+  color: var(--text-primary);
+  margin: 0 0 6px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.meta-user {
   color: var(--text-secondary);
+  font-weight: 500;
+}
+.meta-sep {
+  color: var(--border-emphasis);
+}
+.meta-rules {
+  color: var(--color-warning);
+}
+.meta-duration {
+  color: var(--text-tertiary);
+  margin-left: auto;
 }
 
 .pagination {
   display: flex;
   justify-content: center;
   padding: 16px 0;
+  border-top: 1px solid var(--border-subtle);
 }
 </style>

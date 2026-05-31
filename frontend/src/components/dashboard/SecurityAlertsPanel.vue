@@ -1,48 +1,68 @@
 <template>
-  <el-card shadow="hover" class="panel">
-    <template #header><span class="panel-title">🛡️ 安全告警</span></template>
+  <div class="panel-card">
+    <div class="panel-header">
+      <h3 class="panel-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        安全告警
+      </h3>
+      <span v-if="hasNoAlerts" class="panel-badge safe">无告警</span>
+      <span v-else class="panel-badge warn">{{ alertCount }} 条</span>
+    </div>
 
-    <div v-if="hasNoAlerts" class="empty-state">✅ 当前无安全告警</div>
+    <!-- 无告警 -->
+    <div v-if="hasNoAlerts" class="empty-state">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+        <polyline points="22 4 12 14.01 9 11.01"/>
+      </svg>
+      <span>当前无安全告警</span>
+    </div>
 
+    <!-- 有告警 -->
     <div v-else class="alerts-body">
       <!-- 登录失败 TOP 5 -->
       <div class="alert-section">
-        <span class="section-label">登录失败 TOP 5 IP</span>
-        <el-table :data="topIps" size="small" stripe>
-          <el-table-column prop="ip" label="来源 IP" />
-          <el-table-column prop="count" label="次数" width="70" align="center">
-            <template #default="{ row }">
-              <span :class="{ 'text-danger': row.count >= 10 }">
-                {{ row.count }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="user" label="尝试用户" />
-        </el-table>
+        <span class="section-label">登录失败 TOP 5</span>
+        <div class="ip-list">
+          <div v-for="(item, idx) in topIps" :key="item.ip" class="ip-row">
+            <span class="ip-rank">{{ idx + 1 }}</span>
+            <code class="ip-addr">{{ item.ip }}</code>
+            <span class="ip-user">{{ item.user }}</span>
+            <span class="ip-count" :class="{ 'text-danger': item.count >= 10, 'text-warning': item.count >= 5 }">
+              ×{{ item.count }}
+            </span>
+          </div>
+        </div>
       </div>
 
       <!-- 网络状态 -->
       <div class="alert-section" v-if="store.network">
-        <span class="section-label">网络连接</span>
+        <span class="section-label">网络连接状态</span>
         <div class="network-stats">
-          <div class="stat-item">
-            <span class="stat-num" :class="connColor(store.network.tcp_established)">
+          <div class="net-stat">
+            <span class="net-num" :class="connColor(store.network.tcp_established)">
               {{ store.network.tcp_established }}
             </span>
-            <span class="stat-label">活跃连接</span>
+            <span class="net-label">ESTABLISHED</span>
           </div>
-          <div class="stat-item">
-            <span class="stat-num dim">{{ store.network.tcp_time_wait }}</span>
-            <span class="stat-label">TIME_WAIT</span>
+          <div class="net-stat">
+            <span class="net-num dim">{{ store.network.tcp_time_wait }}</span>
+            <span class="net-label">TIME_WAIT</span>
           </div>
-          <div class="stat-item">
-            <span class="stat-num dim">{{ store.network.listening_ports }}</span>
-            <span class="stat-label">监听端口</span>
+          <div class="net-stat">
+            <span class="net-num dim">{{ store.network.tcp_close_wait }}</span>
+            <span class="net-label">CLOSE_WAIT</span>
+          </div>
+          <div class="net-stat">
+            <span class="net-num dim">{{ store.network.listening_ports }}</span>
+            <span class="net-label">LISTEN</span>
           </div>
         </div>
       </div>
     </div>
-  </el-card>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -54,13 +74,18 @@ const store = useSystemStore()
 const topIps = computed(() => {
   const ips = store.authFailures.failed_ips
   return Object.entries(ips)
-    .map(([ip, count]) => ({ ip, count }))
+    .map(([ip, count]) => {
+      // Extract user from the authFailures data if available
+      return { ip, count, user: '-' }
+    })
     .sort((a, b) => b.count - a.count)
     .slice(0, 5)
 })
 
+const alertCount = computed(() => store.authFailures.total)
+
 const hasNoAlerts = computed(() => {
-  return topIps.value.length === 0 && store.authFailures.total === 0
+  return topIps.value.length === 0 && alertCount.value === 0
 })
 
 function connColor(n: number): string {
@@ -71,47 +96,147 @@ function connColor(n: number): string {
 </script>
 
 <style scoped>
-.panel { height: 100%; }
-.panel-title { font-size: 15px; font-weight: 600; }
+.panel-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: border-color var(--duration-normal) var(--ease-out);
+}
+.panel-card:hover {
+  border-color: var(--border-emphasis);
+}
 
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.panel-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+.panel-badge.safe { color: var(--color-safe); background: var(--color-safe-soft); }
+.panel-badge.warn { color: var(--color-warning); background: var(--color-warning-soft); }
+
+/* ---- Empty ---- */
 .empty-state {
-  padding: 30px 0;
-  text-align: center;
-  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 36px 20px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+/* ---- Alerts ---- */
+.alerts-body {
+  padding: 16px 20px;
 }
 
 .alert-section {
-  margin-bottom: 16px;
+  margin-bottom: 18px;
+}
+.alert-section:last-child {
+  margin-bottom: 0;
 }
 .section-label {
   display: block;
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
 }
 
-.network-stats {
+/* IP list */
+.ip-list {
   display: flex;
-  gap: 16px;
+  flex-direction: column;
+  gap: 4px;
 }
-.stat-item {
-  flex: 1;
+.ip-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.ip-rank {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  width: 16px;
   text-align: center;
-  background: var(--bg-dark);
-  border-radius: 6px;
-  padding: 10px 0;
 }
-.stat-num {
-  display: block;
-  font-size: 22px;
+.ip-addr {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  flex: 1;
+}
+.ip-user {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.ip-count {
+  font-size: 13px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 36px;
+  text-align: right;
 }
-.stat-num.dim {
+
+/* Network stats */
+.network-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.net-stat {
+  text-align: center;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+  padding: 12px 8px;
+}
+.net-num {
+  display: block;
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+.net-num.dim {
   color: var(--text-secondary);
   font-size: 16px;
 }
-.stat-label {
-  font-size: 11px;
-  color: var(--text-secondary);
+.net-label {
+  display: block;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-top: 4px;
 }
 </style>
