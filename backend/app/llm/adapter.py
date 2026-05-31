@@ -25,7 +25,7 @@ import httpx
 OLLAMA_BASE="http://localhost:11434"
 OLLAMA_MODEL="qwen3:4b"
 MAX_TOOL_ROUNDS=5
-REQUEST_TIMEOUT=50
+REQUEST_TIMEOUT=120
 
 # 缓存: platform info 和 tools 列表在进程生命周期内不变, 只构建一次
 _cached_platform=None
@@ -162,14 +162,16 @@ async def call_ollama(messages, tools=None):
                         continue
                     if data.get("done"):
                         yield {"type": "done", "reason": data.get("done_reason", "stop")}
-                        break
+                        return
                     msg=data.get("message", {})
                     if msg.get("content"):
                         yield {"type": "token", "content": msg["content"]}
                     if msg.get("tool_calls"):
                         yield {"type": "tool_calls", "calls": msg["tool_calls"]}
-        except httpx.HTTPStatusError:
-            yield {"type": "done", "reason": "http_error"}
+        except httpx.ConnectError:
+            yield {"type": "done", "reason": "connect_error"}
+        except (httpx.ReadTimeout, httpx.HTTPStatusError):
+            yield {"type": "done", "reason": "request_failed"}
 
 
 """
@@ -268,6 +270,11 @@ async def chat_stream(user_input, history=None):
                 elif event["type"] == "tool_calls":
                     tool_calls_in_round=event["calls"]
                 elif event["type"] == "done":
+                    # 检查 done 原因: connect_error / request_failed 表示 Ollama 不可用
+                    if event.get("reason") in ("connect_error", "request_failed"):
+                        yield {"event": "error", "data": {
+                            "message": "Ollama 请求失败 — 模型可能正在加载中, 请稍后重试"}}
+                        return
                     break
         except httpx.ConnectError:
             yield {"event": "error", "data": {"message": "Ollama 服务未启动, 请运行: ollama serve"}}
