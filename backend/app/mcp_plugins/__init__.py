@@ -1,4 +1,4 @@
-# MCP 运维插件 — 6 大类 20 Tools
+# MCP 运维插件 — 6 大类 22 Tools
 
 # 每个插件封装系统感知/管理能力为 MCP Tool:
 # - process_plugin.py    进程感知 (1 Tool)

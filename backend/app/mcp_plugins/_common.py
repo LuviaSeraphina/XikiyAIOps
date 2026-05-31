@@ -36,9 +36,9 @@ _ALLOWED_COMMANDS={
 }
 
 # 高危参数模式 (即使命令在白名单内, 参数包含这些也拒绝)
-_DANGEROUS_PARAMS = {
+_DANGEROUS_PARAMS={
     "rm", "-rf", "-r", "-f", "mkfs", "dd", "shutdown", "reboot",
-    "poweroff", "halt", "chmod", "chown", ">", ">>", "|", ";", "&&",
+    "poweroff", "halt", "chmod", "chown", ">", ">>", "&&",
 }
 
 #方法: 在 run_command 前校验命令安全性

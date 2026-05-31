@@ -19,8 +19,6 @@ async def health():
     return {"status": "ok", "service": "sre-agent"}
 
 
-# 路由注册（后续启用）
-# from app.api import chat, dashboard, audit
-# app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
-# app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
-# app.include_router(audit.router, prefix="/api/audit", tags=["audit"])
+# 路由注册
+from app.api import chat
+app.include_router(chat.router, prefix="/api/chat", tags=["chat"])

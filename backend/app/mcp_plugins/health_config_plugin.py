@@ -9,7 +9,9 @@ from app.core.rca_analyzer import load_health_config, save_health_config
 from app.mcp_plugins._common import make_response as _make_response, error_response as _error_response
 
 
-# 读取健康评分配置
+"""
+方法: health_config_get_handler(), 读取当前健康评分配置
+"""
 def health_config_get_handler():
     try:
         config=load_health_config()
@@ -25,7 +27,9 @@ def health_config_get_handler():
         return _error_response("health_config_get", e)
 
 
-# 按 dot-path 修改单个配置项
+"""
+方法: health_config_set_handler(), 按 dot-path 修改单个配置项
+"""
 def health_config_set_handler(key_path="", value=0.0):
     try:
         if not key_path:
@@ -34,7 +38,7 @@ def health_config_set_handler(key_path="", value=0.0):
         # 按 . 分隔的路径逐层定位并修改
         keys=key_path.split(".")
         target=config
-        for i, key in enumerate(keys[:-1]):
+        for _, key in enumerate(keys[:-1]):
             # 处理数组索引: 如 thresholds.cpu.1 → 定位到 thresholds["cpu"][1]
             if isinstance(target, list):
                 idx=int(key)

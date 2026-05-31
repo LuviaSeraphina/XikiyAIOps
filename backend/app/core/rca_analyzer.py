@@ -435,7 +435,7 @@ def infer_causal_chain(events, min_confidence=0.7):
                 if confidence < min_confidence:
                     continue
                 if cause_re.search(msg_a) and effect_re.search(msg_b):
-                    link = {
+                    link={
                         "cause": {
                             "process": event_a.get("process", "unknown"),
                             "message": msg_a[:100],

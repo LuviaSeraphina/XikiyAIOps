@@ -18,7 +18,7 @@ def _get_platform_info():
     }
 
 #方法: 检查Linux发行版本    
-def _get_linux_distro() -> str:
+def _get_linux_distro():
     try:
         with open("/etc/os-release") as f:
             for line in f:

@@ -1,7 +1,7 @@
 """
 MCP 安全态势感知插件
 
-提供五项安全检查能力：
+提供九项安全检查能力：
 
 1. security_auth_failures      — 多源认证失败统计(SSH/su/sudo/PAM)
 2. security_active_sessions    — 活跃登录会话 & SSH 连接枚举
