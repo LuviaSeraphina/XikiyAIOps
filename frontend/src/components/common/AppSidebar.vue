@@ -162,13 +162,20 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 20px 18px;
+  height: var(--header-height);
+  padding: 0 18px;
   border-bottom: 1px solid var(--border-subtle);
-  min-height: var(--header-height);
+  overflow: hidden;
+  flex-shrink: 0;
 }
 .brand-icon {
   flex-shrink: 0;
   display: flex;
+}
+.brand-icon :deep(svg) {
+  width: 28px;
+  height: 28px;
+  display: block;
 }
 .brand-text {
   display: flex;
@@ -231,8 +238,16 @@ onMounted(() => {
   width: 20px;
   height: 20px;
 }
+.nav-icon :deep(svg) {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
 .nav-label {
   flex: 1;
+  height: 20px;
+  line-height: 20px;
+  overflow: hidden;
 }
 .nav-indicator {
   position: absolute;

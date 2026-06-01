@@ -1,48 +1,44 @@
 <template>
-  <div
-    class="bubble-wrapper"
-    :class="[message.role, { streaming }]"
-  >
+  <div class="msg" :class="[message.role, { streaming }]">
     <!-- 头像 -->
-    <div class="bubble-avatar">
-      <span class="avatar-icon" v-html="avatarSvg" />
+    <div class="msg-avatar" :class="message.role">
+      <span v-html="avatarSvg" />
     </div>
 
-    <!-- 消息内容 -->
-    <div class="bubble-main">
-      <div class="bubble-meta">
-        <span class="meta-role">{{ roleLabel }}</span>
-        <span class="meta-time">{{ timeStr }}</span>
+    <!-- 内容 -->
+    <div class="msg-main">
+      <!-- 元信息 -->
+      <div class="msg-meta">
+        <span class="msg-role">{{ roleLabel }}</span>
+        <span class="msg-time">{{ timeStr }}</span>
       </div>
 
-      <div class="bubble-body">
-        <!-- 思考中: 流式激活但无内容 -> 显示思考动画 -->
-        <div v-if="isStreaming && !message.content && !message.tool_calls?.length" class="thinking-indicator">
-          <span class="thinking-dot" />
-          <span class="thinking-dot" />
-          <span class="thinking-dot" />
-          <span class="thinking-text">思考中，正在感知系统状态...</span>
-        </div>
+      <!-- 思考中 -->
+      <div v-if="isStreaming && !message.content && !message.tool_calls?.length" class="msg-thinking">
+        <span class="thinking-dot" />
+        <span class="thinking-dot" />
+        <span class="thinking-dot" />
+        <span class="thinking-label">思考中...</span>
+      </div>
 
-        <!-- 工具调用中: 有 tool_calls 但无内容 -->
-        <div v-if="hasRunningTools" class="thinking-indicator tool-running">
-          <span class="thinking-text">🔧 正在调用工具: {{ runningToolNames }}</span>
-        </div>
+      <!-- 工具执行中 -->
+      <div v-if="hasRunningTools && !message.content" class="msg-thinking tool-mode">
+        <span class="thinking-label">🔧 正在调用: {{ runningToolNames }}</span>
+      </div>
 
-        <!-- Markdown 渲染 -->
-        <div v-if="message.content" class="content markdown-body" v-html="renderedContent" />
+      <!-- 正文 -->
+      <div v-if="message.content" class="msg-content" v-html="renderedContent" />
 
-        <!-- 闪烁光标 (有内容时才显示) -->
-        <span v-if="isStreaming && message.content" class="cursor-blink" />
+      <!-- 流式光标 -->
+      <span v-if="isStreaming && message.content" class="cursor" />
 
-        <!-- 工具调用卡片 -->
-        <div v-if="message.tool_calls?.length" class="tool-calls">
-          <ToolCallCard
-            v-for="tc in message.tool_calls"
-            :key="tc.id"
-            :tool-call="tc"
-          />
-        </div>
+      <!-- 工具卡片 -->
+      <div v-if="message.tool_calls?.length" class="msg-tools">
+        <ToolCallCard
+          v-for="tc in message.tool_calls"
+          :key="tc.id"
+          :tool-call="tc"
+        />
       </div>
     </div>
   </div>
@@ -63,10 +59,10 @@ const isStreaming = computed(() => props.streaming && props.message.role === 'as
 
 const roleLabel = computed(() => {
   switch (props.message.role) {
-    case 'user':      return '你'
+    case 'user':      return 'You'
     case 'assistant': return 'SRE-Agent'
-    case 'system':    return '系统'
-    case 'tool':      return '工具'
+    case 'system':    return 'System'
+    case 'tool':      return 'Tool'
     default:          return ''
   }
 })
@@ -74,13 +70,13 @@ const roleLabel = computed(() => {
 const avatarSvg = computed(() => {
   switch (props.message.role) {
     case 'user':
-      return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`
+      return `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>`
     case 'assistant':
-      return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`
+      return `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>`
     case 'system':
-      return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72 1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`
+      return `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`
     default:
-      return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`
+      return `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`
   }
 })
 
@@ -94,13 +90,11 @@ const renderedContent = computed(() => {
   return renderMarkdown(props.message.content)
 })
 
-// 是否有正在执行的工具
 const hasRunningTools = computed(() => {
   return (props.message.tool_calls?.length ?? 0) > 0 &&
     props.message.tool_calls!.some(tc => tc.status === 'running' || tc.status === 'pending')
 })
 
-// 正在执行的工具名称列表
 const runningToolNames = computed(() => {
   if (!props.message.tool_calls) return ''
   return props.message.tool_calls
@@ -111,175 +105,183 @@ const runningToolNames = computed(() => {
 </script>
 
 <style scoped>
-.bubble-wrapper {
+.msg {
   display: flex;
-  gap: 12px;
-  max-width: 85%;
-  margin-bottom: 20px;
-  animation: fadeInUp 0.35s var(--ease-out);
+  gap: 16px;
+  padding: 16px 0;
+  animation: fadeIn 0.3s ease;
 }
-
-/* ---- User: right align ---- */
-.bubble-wrapper.user {
-  margin-left: auto;
-  flex-direction: row-reverse;
-}
-.bubble-wrapper.user .bubble-meta {
-  flex-direction: row-reverse;
-}
-.bubble-wrapper.user .bubble-body {
-  background: var(--color-accent);
-  color: #fff;
-  border-radius: 14px 4px 14px 14px;
-}
-.bubble-wrapper.user .meta-role {
-  color: var(--text-tertiary);
-}
-
-/* ---- Agent: left align ---- */
-.bubble-wrapper.assistant .bubble-body {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 4px 14px 14px 14px;
-}
-
-/* ---- System / Tool ---- */
-.bubble-wrapper.system .bubble-body,
-.bubble-wrapper.tool .bubble-body {
-  background: var(--bg-elevated);
-  border: 1px dashed var(--border-subtle);
-  border-radius: 10px;
-  font-size: 12px;
-  opacity: 0.8;
+.msg + .msg {
+  border-top: 1px solid var(--border-subtle);
 }
 
 /* ---- Avatar ---- */
-.bubble-avatar {
+.msg-avatar {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-md);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-surface);
-  color: var(--text-secondary);
-}
-.bubble-wrapper.user .bubble-avatar {
-  background: var(--color-accent);
   color: #fff;
+  margin-top: 2px;
 }
+.msg-avatar.user      { background: #5a7af7; }
+.msg-avatar.assistant  { background: #10a37f; }
+.msg-avatar.system     { background: #8896a7; }
+.msg-avatar.tool       { background: #8896a7; }
 
 /* ---- Main ---- */
-.bubble-main {
+.msg-main {
+  flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
+  padding-top: 2px;
 }
 
 /* ---- Meta ---- */
-.bubble-meta {
+.msg-meta {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-  padding: 0 4px;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
 }
-.meta-role {
-  font-size: 12px;
+.msg-role {
+  font-size: 14px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
-.meta-time {
-  font-size: 11px;
+.msg-time {
+  font-size: 12px;
   color: var(--text-tertiary);
 }
 
-/* ---- Body ---- */
-.bubble-body {
-  padding: 12px 16px;
-  line-height: 1.65;
-  word-break: break-word;
+/* ---- Content ---- */
+.msg-content {
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--text-primary);
 }
-
-/* ---- Content styling ---- */
-.content :deep(p) { margin: 4px 0; }
-.content :deep(p:first-child) { margin-top: 0; }
-.content :deep(p:last-child) { margin-bottom: 0; }
-.content :deep(ul), .content :deep(ol) { padding-left: 20px; margin: 4px 0; }
-.content :deep(table) {
+.msg-content :deep(p)          { margin: 0 0 12px; }
+.msg-content :deep(p:last-child) { margin-bottom: 0; }
+.msg-content :deep(ul),
+.msg-content :deep(ol)         { padding-left: 22px; margin: 0 0 12px; }
+.msg-content :deep(li)         { margin-bottom: 4px; }
+.msg-content :deep(strong)     { font-weight: 600; }
+.msg-content :deep(h1),
+.msg-content :deep(h2),
+.msg-content :deep(h3),
+.msg-content :deep(h4)         { margin: 16px 0 8px; font-weight: 600; line-height: 1.3; }
+.msg-content :deep(h1)         { font-size: 20px; }
+.msg-content :deep(h2)         { font-size: 18px; }
+.msg-content :deep(h3)         { font-size: 16px; }
+.msg-content :deep(h4)         { font-size: 14px; }
+.msg-content :deep(blockquote) {
+  border-left: 3px solid var(--color-accent);
+  padding: 4px 0 4px 14px;
+  margin: 12px 0;
+  color: var(--text-secondary);
+}
+.msg-content :deep(table) {
   border-collapse: collapse;
-  margin: 8px 0;
+  margin: 12px 0;
   width: 100%;
+  font-size: 14px;
 }
-.content :deep(th), .content :deep(td) {
+.msg-content :deep(th),
+.msg-content :deep(td) {
   border: 1px solid var(--border-subtle);
-  padding: 6px 10px;
-  font-size: 12.5px;
+  padding: 8px 12px;
+  text-align: left;
 }
-.content :deep(th) {
+.msg-content :deep(th) {
   background: rgba(255,255,255,0.03);
   font-weight: 600;
+  font-size: 13px;
 }
-.content :deep(blockquote) {
-  border-left: 3px solid var(--color-accent);
-  padding: 4px 12px;
-  margin: 6px 0;
-  opacity: 0.8;
-  background: rgba(255,255,255,0.02);
-  border-radius: 0 4px 4px 0;
+.msg-content :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 16px 0;
 }
-.content :deep(h1), .content :deep(h2), .content :deep(h3) {
-  margin: 8px 0 4px;
-  font-weight: 600;
+.msg-content :deep(a) {
+  color: var(--color-accent-subtle);
+  text-decoration: underline;
 }
-.content :deep(h1) { font-size: 18px; }
-.content :deep(h2) { font-size: 16px; }
-.content :deep(h3) { font-size: 14px; }
+.msg-content :deep(code) {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: rgba(0,0,0,0.2);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.msg-content :deep(pre) {
+  background: #0d1117;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin: 12px 0;
+  overflow-x: auto;
+}
+.msg-content :deep(pre code) {
+  background: none;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
 
-/* 思考中动画 */
-.bubble-body .thinking-indicator {
+/* ---- Thinking ---- */
+.msg-thinking {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   padding: 4px 0;
 }
-.bubble-body .thinking-text {
-  font-size: 13px;
-  color: var(--text-secondary);
+.msg-thinking.tool-mode {
+  gap: 0;
+}
+.thinking-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  animation: dotBounce 1.4s infinite ease-in-out;
+}
+.thinking-dot:nth-child(1) { animation-delay: 0s; }
+.thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes dotBounce {
+  0%, 80%, 100% { opacity: 0.2; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+.thinking-label {
+  font-size: 14px;
+  color: var(--text-tertiary);
   margin-left: 4px;
 }
-.bubble-body .thinking-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-secondary);
-  animation: dotPulse 1.4s infinite ease-in-out;
-}
-.bubble-body .thinking-dot:nth-child(1) { animation-delay: 0s; }
-.bubble-body .thinking-dot:nth-child(2) { animation-delay: 0.2s; }
-.bubble-body .thinking-dot:nth-child(3) { animation-delay: 0.4s; }
-@keyframes dotPulse {
-  0%, 80%, 100% { opacity: 0.2; }
-  40% { opacity: 1; }
+
+/* ---- Cursor ---- */
+.cursor {
+  display: inline-block;
+  width: 1.5px;
+  height: 18px;
+  background: var(--color-accent);
+  animation: blink 0.7s infinite;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  margin-left: 1px;
 }
 
-/* ---- Tool calls ---- */
-.tool-calls {
+/* ---- Tools ---- */
+.msg-tools {
   margin-top: 12px;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-/* ---- Cursor ---- */
-.cursor-blink {
-  display: inline-block;
-  width: 2px;
-  height: 16px;
-  background: var(--color-accent);
-  animation: blink 0.6s infinite;
-  vertical-align: text-bottom;
-  border-radius: 1px;
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 </style>

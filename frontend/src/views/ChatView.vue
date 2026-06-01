@@ -40,13 +40,6 @@
         :message="msg"
         :streaming="store.streaming && msg.id === lastAgentId"
       />
-
-      <!-- 思考中指示器 -->
-      <div v-if="store.streaming && !lastAgentContent" class="thinking-indicator">
-        <span class="thinking-dot" />
-        <span class="thinking-dot" />
-        <span class="thinking-dot" />
-      </div>
     </div>
 
     <!-- 确认弹窗 -->
@@ -75,14 +68,6 @@ const lastAgentId = computed(() => {
   return ''
 })
 
-const lastAgentContent = computed(() => {
-  const msgs = store.messages
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    if (msgs[i].role === 'assistant') return msgs[i].content
-  }
-  return ''
-})
-
 const quickStarts = [
   { icon: '🔍', label: '查看系统状态', hint: 'CPU、内存、磁盘等', text: '帮我看看当前系统状态' },
   { icon: '🧹', label: '检查磁盘空间', hint: '查看各分区使用率', text: '帮我检查磁盘空间使用情况' },
@@ -106,7 +91,10 @@ watch(
 
 // 持续流式输出时也滚动
 watch(
-  () => lastAgentContent.value?.length,
+  () => {
+    const msgs = store.messages
+    return msgs.length ? msgs[msgs.length - 1].content?.length ?? 0 : 0
+  },
   () => {
     nextTick(() => {
       if (listRef.value) {
@@ -122,8 +110,6 @@ watch(
   display: flex;
   flex-direction: column;
   height: calc(100vh - var(--header-height));
-  max-width: 900px;
-  margin: 0 auto;
 }
 
 /* ---- Welcome ---- */
@@ -158,16 +144,16 @@ watch(
   display: inline-flex;
 }
 .welcome-title {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--text-primary);
   margin-bottom: 8px;
   position: relative;
 }
 .welcome-desc {
-  font-size: 14px;
+  font-size: 15px;
   color: var(--text-secondary);
-  max-width: 360px;
+  max-width: 400px;
   position: relative;
 }
 
@@ -176,7 +162,7 @@ watch(
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
-  max-width: 640px;
+  max-width: 660px;
   width: 100%;
 }
 
@@ -224,25 +210,14 @@ watch(
 .message-list {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 24px;
   scroll-behavior: smooth;
+  padding: 0 24px;
 }
 
-/* ---- Thinking indicator ---- */
-.thinking-indicator {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 12px 16px;
-  margin-bottom: 16px;
+/* Center messages on wide screens */
+@media (min-width: 900px) {
+  .message-list {
+    padding: 0 calc((100% - 800px) / 2);
+  }
 }
-.thinking-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-tertiary);
-  animation: blink 1.2s infinite;
-}
-.thinking-dot:nth-child(2) { animation-delay: 0.2s; }
-.thinking-dot:nth-child(3) { animation-delay: 0.4s; }
 </style>

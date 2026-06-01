@@ -160,7 +160,7 @@ const formattedResult = computed(() => {
 }
 .code-block {
   background: var(--bg-dark);
-  color: #c8d6e5;
+  color: #5a7af7;
   padding: 8px 10px;
   border-radius: var(--radius-sm);
   font-size: 11.5px;

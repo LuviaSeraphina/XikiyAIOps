@@ -394,7 +394,7 @@ blockquote {
 /* Code block */
 .code-block {
   background: rgba(0,0,0,0.3);
-  color: #a8b8c8;
+  color: #5a7af7;
   padding: 8px 10px;
   border-radius: var(--radius-sm);
   font-size: 11.5px;

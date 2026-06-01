@@ -92,9 +92,15 @@ onMounted(() => {
 
 <style scoped>
 .chat-input-area {
-  padding: 12px 20px 16px;
-  background: var(--bg-elevated);
-  border-top: 1px solid var(--border-subtle);
+  padding: 0 24px 20px;
+  background: transparent;
+}
+
+/* Center on wide screens */
+@media (min-width: 900px) {
+  .chat-input-area {
+    padding: 0 calc((100% - 800px) / 2) 20px;
+  }
 }
 
 /* Quick chips */
@@ -103,16 +109,17 @@ onMounted(() => {
   gap: 6px;
   margin-bottom: 10px;
   flex-wrap: wrap;
+  justify-content: center;
 }
 .quick-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px;
-  font-size: 11.5px;
+  padding: 5px 12px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
-  background: var(--bg-surface);
+  background: transparent;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-full);
   cursor: pointer;
@@ -121,7 +128,7 @@ onMounted(() => {
 .quick-chip:hover {
   color: var(--text-primary);
   border-color: var(--border-emphasis);
-  background: var(--bg-surface-hover);
+  background: var(--bg-surface);
 }
 
 /* Input row */
@@ -136,8 +143,8 @@ onMounted(() => {
   gap: 8px;
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: 8px 8px 8px 14px;
+  border-radius: 20px;
+  padding: 10px 8px 10px 18px;
   transition: border-color var(--duration-fast) var(--ease-out);
 }
 .input-wrapper:focus-within {
@@ -152,28 +159,28 @@ onMounted(() => {
   background: transparent;
   color: var(--text-primary);
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.5;
   resize: none;
-  min-height: 22px;
+  min-height: 24px;
   max-height: 150px;
 }
 .chat-textarea::placeholder {
   color: var(--text-tertiary);
 }
 .chat-textarea:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
 }
 
 .send-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   border: none;
-  border-radius: var(--radius-md);
-  background: var(--bg-elevated);
+  border-radius: 50%;
+  background: transparent;
   color: var(--text-tertiary);
   cursor: pointer;
   flex-shrink: 0;
@@ -185,6 +192,7 @@ onMounted(() => {
 }
 .send-btn.active:hover {
   background: #2563eb;
+  transform: scale(1.05);
 }
 .send-btn:disabled {
   cursor: not-allowed;
