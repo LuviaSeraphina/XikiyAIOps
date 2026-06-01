@@ -43,10 +43,16 @@ async def chat_send(request: Request):
 
 @router.post("/confirm")
 async def chat_confirm(request: Request):
-    """危险操作确认回调 — 收到确认后恢复 chat_stream 中的等待"""
+    """危险操作确认回调
+
+    Phase 2 计划: 通过 asyncio.Event + session_id 映射实现暂停-恢复机制。
+    当前阶段: 危险操作的 security_check 事件已发送到前端展示,
+    但后端暂不支持"确认后继续执行"的完整流程。
+    前端应展示确认对话框, 收到确认后调用本端点记录审计日志。
+    """
     body=await request.json()
     confirmed=body.get("confirmed", False)
     if not confirmed:
         return {"success": False, "message": "操作已取消"}
-    # TODO: Phase 2 — 通过 asyncio.Event 恢复 chat_stream 中暂停的 tool 执行
-    return {"success": True, "message": "确认已收到"}
+    # Phase 2: 通过 asyncio.Event 恢复 chat_stream 中暂停的 tool 执行
+    return {"success": True, "message": "确认已收到 (Phase 2 将实现完整确认流程)"}

@@ -1,69 +1,40 @@
 """
-LLM 适配层
+LLM 适配层 — 主编排逻辑
 
-职责: 将安全护栏 + MCP 工具 + LLM 推理 + 前端 SSE 编织为完整对话链路
+职责: 将安全护栏 + MCP 工具 + LLM Provider + 前端 SSE 编织为完整对话链路
 
 模块结构:
     build_system_prompt()   — 动态生成 Agent 身份 Prompt (含 22 个 Tool Schema)
     check_user_input()      — 安全前置拦截 (越狱/高危/注入不进 LLM)
-    call_ollama()           — 调用本地 Ollama, 流式返回 token + tool_calls
     execute_tool()          — 参数注入检测 + 委托 registry.call()
     _process_tool_call()    — 单次工具调用的 SSE 事件构建 + 执行
     chat_stream()           — 主入口 async generator, 编排完整对话循环
 
-依赖: registry (MCP), intent_filter + injection_detector (安全), httpx (HTTP)
+LLM Provider 切换: 通过 .env 中 LLM_PROVIDER 配置, 支持 ollama / deepseek / qwen / openai
+    工厂函数: app.llm.providers.get_llm_provider()
+
+依赖: registry (MCP), intent_filter + injection_detector (安全), providers (LLM)
 调用方: api/chat.py 通过 POST /api/chat/send → SSE StreamingResponse
 """
 from app.mcp_plugins.base import registry
 from app.core.platform_detect import _get_platform_info as get_platform_info
 from app.core.intent_filter import classify_intent, IntentCategory
 from app.core.injection_detector import detect_injection
+from app.llm.config import MAX_TOOL_ROUNDS
+from app.llm.tools import get_tools
+from app.llm.providers import get_llm_provider
+from app.llm.utils import normalize_arguments
 import json
-import httpx
 
-# 常量定义
-OLLAMA_BASE="http://localhost:11434"
-OLLAMA_MODEL="qwen3:4b"
-MAX_TOOL_ROUNDS=5
-REQUEST_TIMEOUT=120
-
-# 缓存: platform info 和 tools 列表在进程生命周期内不变, 只构建一次
+# 缓存: platform info 在进程生命周期内不变, 只构建一次
 _cached_platform=None
 _cached_prompt=None
-_cached_ollama_tools=None
 
 def _get_platform_cached():
     global _cached_platform
     if _cached_platform is None:
         _cached_platform=get_platform_info()
     return _cached_platform
-
-# 将 registry 导出的 Tool Schema 转换为 Ollama function calling 格式
-def _convert_tools():
-    global _cached_ollama_tools
-    if _cached_ollama_tools is not None:
-        return _cached_ollama_tools
-    tools=[]
-    for t in registry.list_all():
-        tools.append({
-            "type": "function",
-            "function": {
-                "name": t["name"],
-                "description": t["description"],
-                "parameters": t["inputSchema"],
-            },
-        })
-    _cached_ollama_tools=tools
-    return tools
-
-# Ollama 返回的 arguments 可能是 JSON 字符串, 统一转为 dict
-def _normalize_arguments(arguments):
-    if isinstance(arguments, str):
-        try:
-            return json.loads(arguments)
-        except json.JSONDecodeError:
-            return {}
-    return arguments or {}
 
 
 """
@@ -136,45 +107,6 @@ def check_user_input(user_input):
 
 
 """
-方法: call_ollama(), 调用 Ollama 本地模型, 流式返回 token / tool_calls / done 事件
-
-Ollama 原生 API 是逐行 JSON:
-    {"message":{"role":"assistant","content":"我来"},"done":false}
-    {"message":{"role":"assistant","tool_calls":[...]},"done":false}
-    {"message":{},"done":true,"done_reason":"stop"}
-
-yield: {"type":"token","content":"..."} | {"type":"tool_calls","calls":[...]} | {"type":"done","reason":"stop"}
-"""
-async def call_ollama(messages, tools=None):
-    payload={"model": OLLAMA_MODEL, "messages": messages, "stream": True}
-    if tools:
-        payload["tools"]=tools
-
-    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-        try:
-            async with client.stream("POST", f"{OLLAMA_BASE}/api/chat", json=payload) as resp:
-                async for line in resp.aiter_lines():
-                    if not line.strip():
-                        continue
-                    try:
-                        data=json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if data.get("done"):
-                        yield {"type": "done", "reason": data.get("done_reason", "stop")}
-                        return
-                    msg=data.get("message", {})
-                    if msg.get("content"):
-                        yield {"type": "token", "content": msg["content"]}
-                    if msg.get("tool_calls"):
-                        yield {"type": "tool_calls", "calls": msg["tool_calls"]}
-        except httpx.ConnectError:
-            yield {"type": "done", "reason": "connect_error"}
-        except (httpx.ReadTimeout, httpx.HTTPStatusError):
-            yield {"type": "done", "reason": "request_failed"}
-
-
-"""
 方法: execute_tool(), 执行单个 MCP Tool — 参数注入检测 + 权限预检 (委托 registry.call)
 """
 def execute_tool(tool_name, arguments):
@@ -189,12 +121,12 @@ def execute_tool(tool_name, arguments):
 
 
 """
-方法: _process_tool_call(), 对单个 Ollama tool call 构建 SSE 事件 + 执行, 返回 (tool_msg, events)
+方法: _process_tool_call(), 对单个 LLM tool call 构建 SSE 事件 + 执行, 返回 (tool_msg, events)
 """
 def _process_tool_call(tc):
     fn=tc.get("function", {})
     tool_name=fn.get("name", "")
-    arguments=_normalize_arguments(fn.get("arguments", {}))
+    arguments=normalize_arguments(fn.get("arguments", {}))
 
     tool_obj=registry.get_tool(tool_name)
     if tool_obj is None:
@@ -231,8 +163,10 @@ def _process_tool_call(tc):
         "tool_name": tool_name, "result": result, "status": status,
     }})
 
-    # tool 角色消息
+    # tool 角色消息 (保留 tool_call_id 供 OpenAI 兼容 API 使用)
     tool_msg={"role": "tool", "content": json.dumps(result, ensure_ascii=False)}
+    if tc.get("id"):
+        tool_msg["tool_call_id"]=tc["id"]
 
     return tool_msg, events
 
@@ -255,33 +189,44 @@ async def chat_stream(user_input, history=None):
         messages.extend(history)
     messages.append({"role": "user", "content": user_input})
 
-    tools=_convert_tools()
+    # 3. 获取 Provider 和标准化 Tool Schema
+    provider=get_llm_provider()
+    tools=get_tools()
 
-    # 3. Tool 调用循环
+    # 4. Tool 调用循环
     for _ in range(MAX_TOOL_ROUNDS):
         assistant_content=""
         tool_calls_in_round=[]
 
-        try:
-            async for event in call_ollama(messages, tools):
-                if event["type"] == "token":
-                    assistant_content += event["content"]
-                    yield {"event": "token", "data": {"text": event["content"]}}
-                elif event["type"] == "tool_calls":
-                    tool_calls_in_round=event["calls"]
-                elif event["type"] == "done":
-                    # 检查 done 原因: connect_error / request_failed 表示 Ollama 不可用
-                    if event.get("reason") in ("connect_error", "request_failed"):
-                        yield {"event": "error", "data": {
-                            "message": "Ollama 请求失败 — 模型可能正在加载中, 请稍后重试"}}
-                        return
-                    break
-        except httpx.ConnectError:
-            yield {"event": "error", "data": {"message": "Ollama 服务未启动, 请运行: ollama serve"}}
-            return
-        except (httpx.ReadTimeout, httpx.HTTPStatusError):
-            yield {"event": "error", "data": {"message": "LLM 请求失败 (超时或服务异常)".format(REQUEST_TIMEOUT)}}
-            return
+        async for event in provider.chat_stream(messages, tools):
+            if event["type"] == "token":
+                assistant_content += event["content"]
+                yield {"event": "token", "data": {"text": event["content"]}}
+            elif event["type"] == "tool_calls":
+                tool_calls_in_round=event["calls"]
+            elif event["type"] == "done":
+                reason=event.get("reason", "stop")
+                if reason == "connect_error":
+                    yield {"event": "error", "data": {
+                        "message": "LLM 服务连接失败 — 请检查 LLM Provider 是否运行"}}
+                    return
+                if reason == "auth_error":
+                    yield {"event": "error", "data": {
+                        "message": "API 认证失败 — 请检查 LLM_API_KEY 是否正确"}}
+                    return
+                if reason == "rate_limit":
+                    yield {"event": "error", "data": {
+                        "message": "API 调用频率超限 — 请稍后重试"}}
+                    return
+                if reason == "server_error":
+                    yield {"event": "error", "data": {
+                        "message": "LLM 服务端异常 — 请稍后重试或联系服务商"}}
+                    return
+                if reason == "request_failed":
+                    yield {"event": "error", "data": {
+                        "message": "LLM 请求失败 — 超时或服务异常, 请稍后重试"}}
+                    return
+                break
 
         if not tool_calls_in_round:
             break
