@@ -29,3 +29,6 @@ async def health():
 #路由注册
 from app.api import chat
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+
+from app.api.audit import router as audit_router
+app.include_router(audit_router, prefix="/api/audit", tags=["audit"])
