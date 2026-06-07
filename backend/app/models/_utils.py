@@ -1,6 +1,7 @@
 """
 模型共享工具 — UUID 生成 + UTC 时间
 
+避免在各模型文件中重复定义相同的辅助函数。
 """
 from datetime import datetime, timezone
 import uuid
