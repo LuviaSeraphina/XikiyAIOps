@@ -17,7 +17,7 @@
     </div>
 
     <!-- Expanded detail -->
-    <transition name="fade-up">
+    <transition name="slide-up">
       <div v-show="expanded" class="tool-detail">
         <div class="detail-section">
           <span class="detail-label">参数</span>
@@ -75,23 +75,20 @@ const formattedResult = computed(() => {
 
 <style scoped>
 .tool-card {
-  background: var(--bg-panel);
+  background: var(--bg-code);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  font-size: 12.5px;
+  border-radius: 8px;
+  font-size: 13px;
   overflow: hidden;
-  transition: border-color var(--duration-fast) var(--ease-out);
+  transition: border-color var(--dur-quick);
 }
 .tool-card:hover {
   border-color: var(--border-default);
 }
-
-/* Status border */
 .status-running { border-left: 3px solid var(--color-accent); }
 .status-done    { border-left: 3px solid var(--color-safe); }
 .status-error   { border-left: 3px solid var(--color-danger); }
 
-/* Header */
 .tool-header {
   display: flex;
   align-items: center;
@@ -100,83 +97,72 @@ const formattedResult = computed(() => {
   cursor: pointer;
   user-select: none;
 }
-.tool-header:hover {
-  background: rgba(255,255,255,0.02);
-}
-
 .tool-status-icon {
-  font-size: 13px;
-  width: 16px;
-  text-align: center;
-  flex-shrink: 0;
+  font-size: 10px;
 }
-.status-done .tool-status-icon    { color: var(--color-safe); }
-.status-error .tool-status-icon   { color: var(--color-danger); }
-.status-running .tool-status-icon { color: var(--color-accent); animation: blink 1.2s infinite; }
-
 .tool-name {
   font-family: var(--font-mono);
   font-size: 12px;
-  font-weight: 600;
   color: var(--text-primary);
   flex: 1;
 }
-
 .risk-tag {
   font-size: 10px;
-  font-weight: 600;
   padding: 1px 6px;
-  border-radius: var(--radius-full);
-  letter-spacing: 0.3px;
+  border-radius: 4px;
+  font-weight: 600;
 }
-.risk-read_only  { color: var(--color-safe); background: var(--color-safe-soft); }
-.risk-restricted { color: var(--color-warning); background: var(--color-warning-soft); }
-.risk-dangerous  { color: var(--color-danger); background: var(--color-danger-soft); }
+.risk-read_only  { background: var(--color-safe-soft); color: var(--color-safe); }
+.risk-restricted { background: var(--color-warning-soft); color: var(--color-warning); }
+.risk-dangerous  { background: var(--color-danger-soft); color: var(--color-danger); }
 
 .expand-icon {
   flex-shrink: 0;
+  transition: transform var(--dur-quick);
   color: var(--text-tertiary);
-  transition: transform var(--duration-fast) var(--ease-out);
 }
 .expand-icon.expanded {
   transform: rotate(90deg);
 }
 
-/* Detail */
 .tool-detail {
-  padding: 0 12px 10px;
+  border-top: 1px solid var(--border-subtle);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .detail-section {
-  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .detail-label {
-  display: block;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 11px;
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin-bottom: 4px;
 }
 .code-block {
-  background: var(--bg-dark);
-  color: #5a7af7;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  font-size: 11.5px;
   font-family: var(--font-mono);
-  max-height: 140px;
-  overflow-y: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: var(--bg-root);
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-all;
-  line-height: 1.45;
 }
 
-/* Running indicator */
 .running-bar {
   height: 2px;
   background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: runningSlide 1.5s infinite ease-in-out;
+}
+@keyframes runningSlide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 </style>

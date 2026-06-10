@@ -2,7 +2,7 @@
   <div class="system-overview">
     <!-- CPU -->
     <div class="metric-chip">
-      <div class="metric-ring" :style="cpuRingStyle">
+      <div class="metric-ring">
         <svg width="32" height="32" viewBox="0 0 32 32">
           <circle cx="16" cy="16" r="13" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="3" />
           <circle
@@ -96,80 +96,56 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import { useSystemStore } from '@/stores/system'
 
 const store = useSystemStore()
+const snap = computed(() => store.snapshot)
 
-const CIRCUMFERENCE = 2 * Math.PI * 13 // ~81.68
-
-// ---- CPU ----
-const cpuPercent = computed(() => +(store.summary?.cpu_percent ?? 0).toFixed(1))
-const cpuText = computed(() => store.summary ? `${cpuPercent.value}%` : '--')
-const cpuColor = computed(() => {
-  if (cpuPercent.value >= 90) return '#ef4444'
-  if (cpuPercent.value >= 70) return '#f59e0b'
+function statusColor(pct: number): string {
+  if (pct >= 90) return '#ef4444'
+  if (pct >= 70) return '#f59e0b'
   return '#22c55e'
-})
+}
+
+// CPU ring
+const cpuText = computed(() => snap.value.load1m?.toFixed(1) ?? '--')
+const cpuPct = computed(() => Math.min((snap.value.load1m ?? 0) * 10, 100))
+const cpuColor = computed(() => statusColor(cpuPct.value))
 const cpuDashArray = computed(() => {
-  const pct = Math.min(cpuPercent.value / 100, 1)
-  return `${(CIRCUMFERENCE * pct).toFixed(1)} ${CIRCUMFERENCE.toFixed(1)}`
+  const pct = cpuPct.value
+  const circ = 2 * Math.PI * 13
+  const dash = (pct / 100) * circ
+  return `${dash} ${circ}`
 })
-const cpuRingStyle = computed(() => ({
-  filter: cpuPercent.value >= 90 ? 'drop-shadow(0 0 4px rgba(239,68,68,0.4))' : 'none',
-}))
 
-// ---- Memory ----
-const memPercent = computed(() => +(store.summary?.memory_percent ?? 0).toFixed(1))
-const memText = computed(() => store.summary ? `${memPercent.value}%` : '--')
-const memColor = computed(() => {
-  if (memPercent.value >= 90) return '#ef4444'
-  if (memPercent.value >= 70) return '#f59e0b'
-  return '#22c55e'
-})
+// Memory ring
+const memText = computed(() => `${snap.value.memoryPercent?.toFixed(0) ?? '--'}%`)
+const memPct = computed(() => snap.value.memoryPercent ?? 0)
+const memColor = computed(() => statusColor(memPct.value))
 const memDashArray = computed(() => {
-  const pct = Math.min(memPercent.value / 100, 1)
-  return `${(CIRCUMFERENCE * pct).toFixed(1)} ${CIRCUMFERENCE.toFixed(1)}`
+  const pct = memPct.value
+  const circ = 2 * Math.PI * 13
+  const dash = (pct / 100) * circ
+  return `${dash} ${circ}`
 })
 
-// ---- Disk ----
-const diskPercent = computed(() => {
-  const disks = store.disks
-  if (!disks.length) return 0
-  return Math.max(...disks.map((d) => d.usage_percent))
-})
-const diskText = computed(() => store.disks.length ? `${diskPercent.value.toFixed(0)}%` : '--')
-const diskColor = computed(() => {
-  if (diskPercent.value >= 90) return '#ef4444'
-  if (diskPercent.value >= 70) return '#f59e0b'
-  return '#22c55e'
-})
+// Disk ring
+const diskText = computed(() => `${snap.value.diskRootPercent?.toFixed(0) ?? '--'}%`)
+const diskPct = computed(() => snap.value.diskRootPercent ?? 0)
+const diskColor = computed(() => statusColor(diskPct.value))
 const diskDashArray = computed(() => {
-  const pct = Math.min(diskPercent.value / 100, 1)
-  return `${(CIRCUMFERENCE * pct).toFixed(1)} ${CIRCUMFERENCE.toFixed(1)}`
+  const pct = diskPct.value
+  const circ = 2 * Math.PI * 13
+  const dash = (pct / 100) * circ
+  return `${dash} ${circ}`
 })
 
-// ---- Alerts ----
-const alertCount = computed(() => store.authFailures.total)
-
-// ---- Uptime ----
+const alertCount = computed(() => snap.value.authFailures ?? 0)
 const lastUpdateText = computed(() => {
-  if (!store.lastUpdate) return ''
-  const diff = Math.floor((Date.now() - store.lastUpdate) / 1000)
-  if (diff < 60) return `${diff}s ago`
-  return `${Math.floor(diff / 60)}m ago`
-})
-
-// ---- Polling ----
-let timer: ReturnType<typeof setInterval> | null = null
-
-onMounted(() => {
-  store.refreshAll()
-  timer = setInterval(() => store.refreshAll(), 30_000)
-})
-
-onUnmounted(() => {
-  if (timer) clearInterval(timer)
+  const t = store.lastUpdate
+  if (!t) return ''
+  return new Date(t).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 })
 </script>
 
@@ -186,7 +162,7 @@ onUnmounted(() => {
   gap: 8px;
   padding: 5px 12px 5px 6px;
   border-radius: var(--radius-lg);
-  transition: background var(--duration-fast) var(--ease-out);
+  transition: background var(--dur-quick) var(--ease-out);
 }
 .metric-chip:hover {
   background: var(--bg-surface);

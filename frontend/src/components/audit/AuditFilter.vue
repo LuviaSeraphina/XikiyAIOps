@@ -1,124 +1,57 @@
 <template>
   <div class="audit-filter">
     <div class="filter-row">
-      <div class="filter-input">
-        <svg class="filter-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <div class="search-box">
+        <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
-        <input
-          v-model="local.keyword"
-          class="filter-text-input"
-          placeholder="搜索指令关键字或用户名..."
-          @input="emitFilter"
-        />
+        <input v-model="keyword" class="search-input" placeholder="搜索指令关键字或用户名..." @input="onKeywordInput" />
       </div>
-
-      <el-select
-        v-model="local.riskLevel"
-        placeholder="风险等级"
-        clearable
-        style="width: 170px;"
-        @change="emitFilter"
-      >
-        <el-option label="全部" value="" />
-        <el-option label="安全 (read_only)" value="read_only" />
-        <el-option label="需确认 (restricted)" value="restricted" />
-        <el-option label="高危 (dangerous)" value="dangerous" />
-      </el-select>
-
-      <el-date-picker
-        v-model="local.dateRange"
-        type="daterange"
-        range-separator="~"
-        start-placeholder="开始日期"
-        end-placeholder="结束日期"
-        value-format="YYYY-MM-DD"
-        style="width: 240px;"
-        @change="emitFilter"
-      />
-
-      <el-button type="primary" @click="emitFilter">查询</el-button>
-      <el-button @click="reset">重置</el-button>
+      <select v-model="riskLevel" class="risk-select" @change="emitImmediate">
+        <option value="">全部等级</option>
+        <option value="read_only">安全 (read_only)</option>
+        <option value="restricted">需确认 (restricted)</option>
+        <option value="dangerous">高危 (dangerous)</option>
+      </select>
+      <span class="count-badge" v-if="total > 0">{{ total }} 条</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive } from 'vue'
-import type { RiskLevel } from '@/types'
+import { ref, onBeforeUnmount } from 'vue'
 
-const emit = defineEmits<{
-  'filter-change': [params: { keyword: string; riskLevel: RiskLevel | ''; dateRange: string[] }]
-}>()
+const emit = defineEmits<{ 'filter-change': [params: { keyword: string; riskLevel: string }] }>()
+defineProps<{ total: number }>()
 
-const local = reactive({
-  keyword: '',
-  riskLevel: '' as RiskLevel | '',
-  dateRange: [] as string[],
-})
+const keyword = ref('')
+const riskLevel = ref('')
+let timer: ReturnType<typeof setTimeout> | null = null
 
+function onKeywordInput() {
+  if (timer) clearTimeout(timer)
+  timer = setTimeout(() => emitFilter(), 300)
+}
 function emitFilter() {
-  emit('filter-change', {
-    keyword: local.keyword,
-    riskLevel: local.riskLevel,
-    dateRange: local.dateRange,
-  })
+  if (timer) clearTimeout(timer)
+  emit('filter-change', { keyword: keyword.value, riskLevel: riskLevel.value })
 }
-
-function reset() {
-  local.keyword = ''
-  local.riskLevel = ''
-  local.dateRange = []
-  emitFilter()
+function emitImmediate() {
+  if (timer) clearTimeout(timer)
+  emit('filter-change', { keyword: keyword.value, riskLevel: riskLevel.value })
 }
+onBeforeUnmount(() => { if (timer) clearTimeout(timer) })
 </script>
 
 <style scoped>
-.audit-filter {
-  padding: 14px 20px;
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.filter-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.filter-input {
-  position: relative;
-  flex: 1;
-  min-width: 180px;
-  max-width: 300px;
-}
-.filter-icon {
-  position: absolute;
-  left: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-tertiary);
-  pointer-events: none;
-}
-.filter-text-input {
-  width: 100%;
-  height: 32px;
-  padding: 0 12px 0 32px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: var(--font-sans);
-  outline: none;
-  transition: border-color var(--duration-fast) var(--ease-out);
-}
-.filter-text-input::placeholder {
-  color: var(--text-tertiary);
-}
-.filter-text-input:focus {
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px var(--color-accent-soft);
-}
+.audit-filter { padding: 10px 20px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
+.filter-row { display: flex; align-items: center; gap: 10px; }
+.search-box { position: relative; flex: 1; max-width: 300px; }
+.search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-tertiary); pointer-events: none; }
+.search-input { width: 100%; padding: 6px 10px 6px 30px; background: var(--bg-root); border: 1px solid var(--border-default); border-radius: 7px; color: var(--text-primary); font-size: 13px; outline: none; transition: border-color 150ms; }
+.search-input:focus { border-color: var(--color-accent); }
+.search-input::placeholder { color: var(--text-placeholder); }
+.risk-select { padding: 6px 10px; background: var(--bg-root); border: 1px solid var(--border-default); border-radius: 7px; color: var(--text-primary); font-size: 13px; outline: none; cursor: pointer; min-width: 170px; transition: border-color 150ms; }
+.risk-select:focus { border-color: var(--color-accent); }
+.count-badge { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; margin-left: auto; }
 </style>

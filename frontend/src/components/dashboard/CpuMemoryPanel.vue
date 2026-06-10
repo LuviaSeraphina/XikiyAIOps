@@ -8,7 +8,7 @@
         </svg>
         CPU & 内存
       </h3>
-      <span class="panel-badge" v-if="store.summary">实时</span>
+      <span class="panel-badge" v-if="store.snapshot.cpuCores !== undefined">快照</span>
     </div>
 
     <div class="panel-body">
@@ -18,19 +18,19 @@
         <div class="cpu-extra">
           <div class="extra-item">
             <span class="extra-label">核心数</span>
-            <span class="extra-value">{{ store.summary?.cpu_cores ?? '--' }}</span>
+            <span class="extra-value">{{ store.snapshot.cpuCores ?? '--' }}</span>
           </div>
           <div class="extra-item">
             <span class="extra-label">Load 1m</span>
-            <span class="extra-value">{{ store.summary?.load_avg?.[0]?.toFixed(1) ?? '--' }}</span>
+            <span class="extra-value">{{ store.snapshot.load1m?.toFixed(1) ?? '--' }}</span>
           </div>
           <div class="extra-item">
             <span class="extra-label">Load 5m</span>
-            <span class="extra-value">{{ store.summary?.load_avg?.[1]?.toFixed(1) ?? '--' }}</span>
+            <span class="extra-value">{{ store.snapshot.load5m?.toFixed(1) ?? '--' }}</span>
           </div>
           <div class="extra-item">
             <span class="extra-label">Load 15m</span>
-            <span class="extra-value">{{ store.summary?.load_avg?.[2]?.toFixed(1) ?? '--' }}</span>
+            <span class="extra-value">{{ store.snapshot.load15m?.toFixed(1) ?? '--' }}</span>
           </div>
         </div>
       </div>
@@ -126,22 +126,23 @@ function initChart() {
 }
 
 function updateChart() {
-  if (!chart || !store.summary) return
+  if (!chart) return
+  const cpu = store.snapshot.load1m ? +(store.snapshot.load1m * 10).toFixed(1) : 0
   chart.setOption({
-    series: [{ data: [{ value: +store.summary.cpu_percent.toFixed(1), name: 'CPU' }] }],
+    series: [{ data: [{ value: Math.min(cpu, 100), name: 'CPU' }] }],
   })
 }
 
 // ---- Memory ----
-const memPercent = computed(() => +(store.summary?.memory_percent ?? 0).toFixed(1))
-const memUsed = computed(() => (store.summary?.memory_used_gb ?? 0).toFixed(1))
-const memTotal = computed(() => (store.summary?.memory_total_gb ?? 0).toFixed(1))
-const swapTotal = computed(() => store.summary?.swap_total_gb ?? 0)
+const memPercent = computed(() => +(store.snapshot.memoryPercent ?? 0).toFixed(1))
+const memUsed = computed(() => (store.snapshot.memoryUsedGb ?? 0).toFixed(1))
+const memTotal = computed(() => (store.snapshot.memoryTotalGb ?? 0).toFixed(1))
+const swapTotal = computed(() => store.snapshot.swapTotalGb ?? 0)
 const swapPercent = computed(() => {
-  if (!store.summary?.swap_total_gb) return 0
-  return +((store.summary.swap_used_gb / store.summary.swap_total_gb) * 100).toFixed(1)
+  if (!store.snapshot.swapTotalGb) return 0
+  return +((store.snapshot.swapUsedGb! / store.snapshot.swapTotalGb) * 100).toFixed(1)
 })
-const swapUsed = computed(() => (store.summary?.swap_used_gb ?? 0).toFixed(1))
+const swapUsed = computed(() => (store.snapshot.swapUsedGb ?? 0).toFixed(1))
 
 function barColor(pct: number): string {
   if (pct >= 90) return 'linear-gradient(90deg, #f59e0b, #ef4444)'
@@ -161,16 +162,9 @@ const swapStatusClass = computed(() => statusClass(swapPercent.value))
 
 // ---- Uptime ----
 const uptimeText = computed(() => {
-  const sec = store.summary?.uptime_seconds
-  if (sec === undefined || sec === null) return ''
-  const d = Math.floor(sec / 86400)
-  const h = Math.floor((sec % 86400) / 3600)
-  const m = Math.floor((sec % 3600) / 60)
-  const parts: string[] = []
-  if (d > 0) parts.push(`${d}d`)
-  if (h > 0) parts.push(`${h}h`)
-  parts.push(`${m}m`)
-  return `已运行 ${parts.join(' ')}`
+  const bootTime = store.snapshot.bootTime
+  if (!bootTime) return ''
+  return `启动于 ${bootTime}`
 })
 
 // ---- Lifecycle ----
@@ -183,7 +177,7 @@ onMounted(() => {
   }
 })
 
-watch(() => store.summary, updateChart)
+watch(() => store.snapshot.load1m, updateChart)
 
 onUnmounted(() => {
   resizeObserver?.disconnect()
@@ -197,7 +191,7 @@ onUnmounted(() => {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  transition: border-color var(--duration-normal) var(--ease-out);
+  transition: border-color var(--dur-gentle) var(--ease-out);
 }
 .panel-card:hover {
   border-color: var(--border-emphasis);

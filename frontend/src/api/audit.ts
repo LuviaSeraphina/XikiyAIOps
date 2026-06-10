@@ -1,6 +1,10 @@
+// ============================================================
+// 审计日志 API — 分页查询 + 详情
+// 对齐后端 app/api/audit.py
+// ============================================================
+
 import { apiGet } from './client'
-import { USE_MOCK, MOCK_AUDIT_LOGS } from './mock'
-import type { AuditLog } from '../types'
+import type { ApiResponse, AuditLog, PaginatedData } from '../types'
 
 export interface AuditListParams {
   page?: number
@@ -9,43 +13,27 @@ export interface AuditListParams {
   keyword?: string
 }
 
-/** GET /api/audit/list — 分页 + 筛选查询 */
-export async function fetchAuditLogs(
+/**
+ * GET /api/audit/list — 分页 + 筛选查询
+ * @param signal 可选的 AbortSignal，用于取消请求
+ */
+export function fetchAuditLogs(
   params: AuditListParams = {},
-): Promise<{ items: AuditLog[]; total: number }> {
-  if (USE_MOCK) {
-    let filtered = MOCK_AUDIT_LOGS
-    if (params.risk_level) {
-      filtered = filtered.filter((l) => l.risk_level === params.risk_level)
-    }
-    if (params.keyword) {
-      const kw = params.keyword.toLowerCase()
-      filtered = filtered.filter(
-        (l) =>
-          l.user.toLowerCase().includes(kw) ||
-          l.stages[0].raw_input.toLowerCase().includes(kw),
-      )
-    }
-    const page = params.page || 1
-    const size = params.size || 20
-    const start = (page - 1) * size
-    return { items: filtered.slice(start, start + size), total: filtered.length }
-  }
-
+  signal?: AbortSignal,
+): Promise<ApiResponse<PaginatedData<AuditLog>>> {
   const query: Record<string, string> = {}
   if (params.page) query.page = String(params.page)
   if (params.size) query.size = String(params.size)
   if (params.risk_level) query.risk_level = params.risk_level
   if (params.keyword) query.keyword = params.keyword
-  return apiGet('/audit/list', query)
+  return apiGet('/audit/list', query, undefined, signal)
 }
 
-/** GET /api/audit/{id} — 单条审计详情 */
-export async function fetchAuditDetail(id: string): Promise<AuditLog> {
-  if (USE_MOCK) {
-    const found = MOCK_AUDIT_LOGS.find((l) => l.id === id)
-    if (!found) throw new Error(`Audit log not found: ${id}`)
-    return found
-  }
+/**
+ * GET /api/audit/{id} — 单条审计日志详情
+ */
+export function fetchAuditDetail(
+  id: string,
+): Promise<ApiResponse<AuditLog>> {
   return apiGet(`/audit/${id}`)
 }

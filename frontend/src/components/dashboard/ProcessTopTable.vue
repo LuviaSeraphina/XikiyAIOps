@@ -5,89 +5,22 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
         </svg>
-        进程 TOP 10
+        进程列表
       </h3>
-      <div class="header-actions">
-        <el-radio-group v-model="sortBy" size="small" @change="onSortChange">
-          <el-radio-button value="cpu">CPU</el-radio-button>
-          <el-radio-button value="memory">内存</el-radio-button>
-        </el-radio-group>
-      </div>
     </div>
-
-    <el-table :data="store.processes" stripe size="small" v-loading="store.loading" class="process-table">
-      <el-table-column prop="pid" label="PID" width="70" align="center">
-        <template #default="{ row }">
-          <code class="pid-code">{{ row.pid }}</code>
-        </template>
-      </el-table-column>
-      <el-table-column prop="name" label="进程名" min-width="140">
-        <template #default="{ row }">
-          <span class="process-name">{{ row.name }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="cpu_percent" label="CPU" width="120" align="right">
-        <template #default="{ row }">
-          <div class="metric-cell">
-            <div class="metric-bar-track">
-              <div
-                class="metric-bar-fill"
-                :style="{ width: Math.min(row.cpu_percent, 100) + '%', background: row.cpu_percent > 80 ? '#ef4444' : '#3b82f6' }"
-              />
-            </div>
-            <span class="metric-num" :class="{ 'text-danger': row.cpu_percent > 80 }">
-              {{ row.cpu_percent.toFixed(1) }}%
-            </span>
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column prop="memory_percent" label="内存" width="120" align="right">
-        <template #default="{ row }">
-          <div class="metric-cell">
-            <div class="metric-bar-track">
-              <div
-                class="metric-bar-fill"
-                :style="{ width: Math.min(row.memory_percent, 100) + '%', background: row.memory_percent > 80 ? '#ef4444' : '#22c55e' }"
-              />
-            </div>
-            <span class="metric-num" :class="{ 'text-danger': row.memory_percent > 80 }">
-              {{ row.memory_percent.toFixed(1) }}%
-            </span>
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column prop="status" label="状态" width="80" align="center">
-        <template #default="{ row }">
-          <span class="status-dot" :class="statusDotClass(row.status)" />
-          {{ row.status }}
-        </template>
-      </el-table-column>
-    </el-table>
+    <div class="empty-state">
+      <p>请通过智能对话中的 MCP 工具查看进程信息</p>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useSystemStore } from '@/stores/system'
-import { fetchProcesses } from '@/api/dashboard'
 
-const store = useSystemStore()
 const sortBy = ref<'cpu' | 'memory'>('cpu')
 
-function statusDotClass(s: string): string {
-  switch (s.toLowerCase()) {
-    case 'running':  return 'dot-safe'
-    case 'sleeping': return 'dot-idle'
-    case 'zombie':
-    case 'stopped':  return 'dot-danger'
-    default:         return 'dot-idle'
-  }
-}
-
-async function onSortChange() {
-  const list = await fetchProcesses(sortBy.value, 10)
-  store.processes = list
-}
+// 进程数据来自 MCP process_inspect 工具，通过 chat 获取
+// 当前仪表盘已整合到 DashboardView，此组件预留用于后续扩展
 </script>
 
 <style scoped>
@@ -96,7 +29,7 @@ async function onSortChange() {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  transition: border-color var(--duration-normal) var(--ease-out);
+  transition: border-color var(--dur-gentle) var(--ease-out);
 }
 .panel-card:hover {
   border-color: var(--border-emphasis);

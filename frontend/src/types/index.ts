@@ -1,6 +1,11 @@
-// ========== 基础类型 ==========
+// ============================================================
+// SRE-agent 全局类型定义
+// 严格对齐后端 API 契约与 SSE 事件流
+// ============================================================
 
-/** 风险等级：只读 | 受限 | 危险 */
+// ========== 枚举字面量 ==========
+
+/** MCP 工具风险等级 */
 export type RiskLevel = 'read_only' | 'restricted' | 'dangerous'
 
 /** 对话消息角色 */
@@ -9,96 +14,91 @@ export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 /** 工具调用状态 */
 export type ToolCallStatus = 'pending' | 'running' | 'done' | 'error'
 
-// ========== 系统状态 ==========
+/** 安全决策 */
+export type SecurityDecision = 'allowed' | 'blocked' | 'confirmed'
 
-/** 系统概览（CPU/内存/Swap/运行时间） */
-export interface SystemSummary {
-  cpu_percent: number
-  cpu_cores: number
-  load_avg: [number, number, number]   // 1min / 5min / 15min
-  memory_total_gb: number
-  memory_used_gb: number
-  memory_percent: number
-  swap_total_gb: number
-  swap_used_gb: number
-  uptime_seconds: number
+/** 威胁等级 */
+export type ThreatLevel = 'SAFE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+
+/** 意图分类 */
+export type IntentCategory =
+  | 'jailbreak'
+  | 'dangerous_action'
+  | 'ops_action'
+  | 'safe_query'
+  | 'unknown'
+
+/** SSE 事件类型（严格对齐后端 chat_stream yield） */
+export type SSEEventType =
+  | 'token'
+  | 'tool_call'
+  | 'tool_result'
+  | 'security_check'
+  | 'rca_analysis'
+  | 'done'
+  | 'error'
+
+// ========== API 统一响应 ==========
+
+export interface ApiResponse<T> {
+  code: number
+  data: T | null
+  message: string
 }
 
-/** 单个磁盘/挂载点信息 */
-export interface DiskInfo {
-  mount_point: string
-  total_gb: number
-  used_gb: number
-  free_gb: number
-  usage_percent: number
-  inode_percent: number
-  filesystem: string
+export interface PaginatedData<T> {
+  items: T[]
+  total: number
+  page: number
+  page_size: number
 }
 
-/** 进程信息 */
-export interface ProcessInfo {
-  pid: number
-  name: string
-  cpu_percent: number
-  memory_percent: number
-  status: string
+// ========== 对话模型（对齐 Conversation + Message） ==========
+
+/** 对话会话 */
+export interface Conversation {
+  id: string
+  session_id: string
+  title: string
+  created_at: string
+  updated_at: string
 }
 
-/** 网络连接统计 */
-export interface NetworkStats {
-  tcp_established: number
-  tcp_time_wait: number
-  tcp_close_wait: number
-  listening_ports: number
-}
-
-/** 登录失败来源 */
-export interface AuthFailure {
-  ip: string
-  count: number
-  user: string
-}
-
-// ========== 对话 ==========
-
-/** 对话消息 */
+/** 单条消息 */
 export interface ChatMessage {
   id: string
   role: MessageRole
-  content: string               // Markdown 文本
+  content: string
   timestamp: string
-  tool_calls?: ToolCall[]       // 该消息包含的工具调用
+  tool_calls?: ToolCall[]
 }
 
-/** MCP 工具调用 */
+/** MCP 工具调用（对齐 Message.tool_calls JSON 列） */
 export interface ToolCall {
   id: string
   tool_name: string
   arguments: Record<string, unknown>
   status: ToolCallStatus
-  result?: unknown
-  risk_level?: RiskLevel
-}
-
-/** 待确认的危险操作 */
-export interface PendingConfirm {
-  message_id: string
-  tool_name: string
-  summary: string
-  details: string
   risk_level: RiskLevel
+  result?: unknown
 }
 
-// ========== 审计日志 ==========
+// ========== 审计日志模型（对齐 AuditLog 5 阶段） ==========
 
-/** 审计日志 — 完整五阶段闭环 */
+/** 审计日志 */
 export interface AuditLog {
   id: string
   timestamp: string
   user: string
   session_id: string
   risk_level: RiskLevel
-  stages: [StageInput, StagePerception, StageReasoning, StageValidation, StageExecution]
+  stages: [
+    StageInput,
+    StagePerception,
+    StageReasoning,
+    StageValidation,
+    StageExecution,
+  ]
 }
 
 /** 阶段 1 — 接收指令 */
@@ -121,11 +121,11 @@ export interface StageReasoning {
   tool_calls_planned: string[]
 }
 
-/** 阶段 4 — 安全校验en */
+/** 阶段 4 — 安全校验 */
 export interface StageValidation {
   rules_hit: string[]
   risk_score: number
-  decision: 'allowed' | 'blocked' | 'confirmed'
+  decision: SecurityDecision
   reason: string
 }
 
@@ -138,52 +138,55 @@ export interface StageExecution {
   duration_ms: number
 }
 
-// ========== SSE 事件 ==========
+// ========== SSE 事件载荷 ==========
 
-/** SSE 事件类型 */
-export type SSEEventType =
-  | 'token'
-  | 'tool_call'
-  | 'tool_result'
-  | 'security_check'
-  | 'rca_analysis'
-  | 'done'
-  | 'error'
-
-/** SSE 事件联合体 */
-export interface SSEEvent {
-  event: SSEEventType
-  data: SSETokenData | SSEToolCallData | SSEToolResultData | SSESecurityCheckData | SSEDoneData | SSEErrorData
+export interface SSETokenData {
+  text: string
 }
 
-/** token — 流式文本片段 */
-export interface SSETokenData { text: string }
-
-/** tool_call — LLM 决定调用工具 */
 export interface SSEToolCallData {
   tool_name: string
   arguments: Record<string, unknown>
   risk_level: RiskLevel
 }
 
-/** tool_result — 工具执行完毕 */
 export interface SSEToolResultData {
   tool_name: string
   result: unknown
   status: ToolCallStatus
 }
 
-/** security_check — 危险操作需二次确认 */
 export interface SSESecurityCheckData {
   tool_name: string
   summary: string
   details: string
   risk_level: RiskLevel
-  require_confirmation: boolean
 }
 
-/** done — 对话结束 */
-export interface SSEDoneData { message_id: string }
+export interface SSERcaAnalysisData {
+  score: number
+  grade: string
+  alerts: string[]
+}
 
-/** error — 异常 */
-export interface SSEErrorData { code: string; message: string }
+export interface SSEErrorData {
+  message: string
+}
+
+// ========== 确认操作 ==========
+
+export interface PendingConfirm {
+  tool_name: string
+  summary: string
+  details: string
+  risk_level: RiskLevel
+}
+
+// ========== 仪表盘辅助类型 ==========
+
+export interface ChartDataPoint {
+  label: string
+  value: number
+  color?: string
+}
+

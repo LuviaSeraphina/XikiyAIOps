@@ -30,10 +30,12 @@ function barColor(pct: number): string {
 }
 
 function updateChart() {
-  if (!chart || !store.disks.length) return
+  if (!chart) return
+  const snap = store.snapshot
+  if (!snap.diskRootTotalGb) return
 
-  const names = store.disks.map((d) => d.mount_point)
-  const values = store.disks.map((d) => +d.usage_percent.toFixed(1))
+  const names = ['/']
+  const values = [+(snap.diskRootPercent ?? 0).toFixed(1)]
 
   chart.setOption({
     tooltip: {
@@ -43,23 +45,14 @@ function updateChart() {
       backgroundColor: 'rgba(17, 22, 30, 0.96)',
       borderColor: 'rgba(255,255,255,0.1)',
       textStyle: { color: '#e8ecf1', fontSize: 12 },
-      extraCssText: 'max-width: 280px; white-space: normal; word-break: break-all; border-radius: 10px; padding: 10px 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.6);',
-      formatter: (params: { dataIndex: number }[]) => {
-        const i = params[0].dataIndex
-        const d = store.disks[i]
-        return `
-          <div style="font-weight:600;margin-bottom:6px;font-size:13px;">${d.mount_point} <span style="color:#8896a7;font-weight:400;font-size:11px;">(${d.filesystem})</span></div>
-          <div style="display:flex;gap:16px;margin-bottom:4px;">
-            <span>总量 <b>${d.total_gb} GB</b></span>
-            <span>已用 <b>${d.used_gb} GB</b></span>
-          </div>
-          <div style="display:flex;gap:16px;">
-            <span>可用 ${d.free_gb} GB</span>
-            <span>inode ${d.inode_percent}%</span>
-          </div>
-          <div style="margin-top:6px;font-weight:600;color:${barColor(d.usage_percent)}">使用率 ${d.usage_percent}%</div>
-        `
-      },
+      formatter: () => `
+        <div style="font-weight:600;margin-bottom:6px;font-size:13px;">/</div>
+        <div style="display:flex;gap:16px;margin-bottom:4px;">
+          <span>总量 <b>${snap.diskRootTotalGb?.toFixed(1)} GB</b></span>
+          <span>已用 <b>${snap.diskRootUsedGb?.toFixed(1)} GB</b></span>
+        </div>
+        <div style="margin-top:6px;font-weight:600;color:${barColor(snap.diskRootPercent ?? 0)}">使用率 ${snap.diskRootPercent?.toFixed(0)}%</div>
+      `,
     },
     grid: { left: 45, right: 20, top: 10, bottom: 35 },
     xAxis: {
@@ -109,7 +102,7 @@ onMounted(() => {
   resizeObserver.observe(chartRef.value)
 })
 
-watch(() => store.disks, updateChart, { deep: true })
+watch(() => store.snapshot.diskRootPercent, updateChart)
 
 onUnmounted(() => {
   resizeObserver?.disconnect()
@@ -123,7 +116,7 @@ onUnmounted(() => {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  transition: border-color var(--duration-normal) var(--ease-out);
+  transition: border-color var(--dur-gentle) var(--ease-out);
 }
 .panel-card:hover {
   border-color: var(--border-emphasis);

@@ -33,12 +33,12 @@ const label = computed(() => {
   align-items: center;
   gap: 5px;
   font-weight: 600;
-  border-radius: var(--radius-full);
+  border-radius: 5px;
   white-space: nowrap;
   user-select: none;
 }
-.status-badge.sm { font-size: 10px; padding: 2px 8px; }
-.status-badge.md { font-size: 11px; padding: 3px 10px; }
+.status-badge.sm { font-size: 10px; padding: 2px 7px; }
+.status-badge.md { font-size: 11px; padding: 3px 9px; }
 
 .status-dot {
   width: 6px;
@@ -47,22 +47,11 @@ const label = computed(() => {
   flex-shrink: 0;
 }
 
-/* Risk levels */
-.risk-read_only {
-  color: var(--color-safe);
-  background: var(--color-safe-soft);
-}
-.risk-read_only .status-dot { background: var(--color-safe); }
+.risk-read_only  { background: var(--color-safe-soft); color: var(--color-safe); }
+.risk-restricted { background: var(--color-warning-soft); color: var(--color-warning); }
+.risk-dangerous  { background: var(--color-danger-soft); color: var(--color-danger); }
 
-.risk-restricted {
-  color: var(--color-warning);
-  background: var(--color-warning-soft);
-}
+.risk-read_only .status-dot  { background: var(--color-safe); }
 .risk-restricted .status-dot { background: var(--color-warning); }
-
-.risk-dangerous {
-  color: var(--color-danger);
-  background: var(--color-danger-soft);
-}
-.risk-dangerous .status-dot { background: var(--color-danger); }
+.risk-dangerous .status-dot  { background: var(--color-danger); }
 </style>

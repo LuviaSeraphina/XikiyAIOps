@@ -61,8 +61,8 @@ import { confirmAction } from '@/api/chat'
 const store = useChatStore()
 const confirming = ref(false)
 const confirmCount = ref(0)
-
 const confirmText = ref('确认执行')
+
 const riskLabel = computed(() => {
   switch (store.pendingConfirm?.risk_level) {
     case 'dangerous':  return '高危'
@@ -87,7 +87,7 @@ async function handleConfirm() {
   if (!store.pendingConfirm) return
   confirming.value = true
   try {
-    await confirmAction(store.currentSessionId, store.pendingConfirm.message_id)
+    await confirmAction(store.currentSessionId)
   } catch (e) {
     console.error('确认操作失败:', e)
   } finally {

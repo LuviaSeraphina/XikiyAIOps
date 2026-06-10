@@ -22,44 +22,10 @@
 
     <!-- 有告警 -->
     <div v-else class="alerts-body">
-      <!-- 登录失败 TOP 5 -->
+      <!-- 登录失败 -->
       <div class="alert-section">
-        <span class="section-label">登录失败 TOP 5</span>
-        <div class="ip-list">
-          <div v-for="(item, idx) in topIps" :key="item.ip" class="ip-row">
-            <span class="ip-rank">{{ idx + 1 }}</span>
-            <code class="ip-addr">{{ item.ip }}</code>
-            <span class="ip-user">{{ item.user }}</span>
-            <span class="ip-count" :class="{ 'text-danger': item.count >= 10, 'text-warning': item.count >= 5 }">
-              ×{{ item.count }}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 网络状态 -->
-      <div class="alert-section" v-if="store.network">
-        <span class="section-label">网络连接状态</span>
-        <div class="network-stats">
-          <div class="net-stat">
-            <span class="net-num" :class="connColor(store.network.tcp_established)">
-              {{ store.network.tcp_established }}
-            </span>
-            <span class="net-label">ESTABLISHED</span>
-          </div>
-          <div class="net-stat">
-            <span class="net-num dim">{{ store.network.tcp_time_wait }}</span>
-            <span class="net-label">TIME_WAIT</span>
-          </div>
-          <div class="net-stat">
-            <span class="net-num dim">{{ store.network.tcp_close_wait }}</span>
-            <span class="net-label">CLOSE_WAIT</span>
-          </div>
-          <div class="net-stat">
-            <span class="net-num dim">{{ store.network.listening_ports }}</span>
-            <span class="net-label">LISTEN</span>
-          </div>
-        </div>
+        <span class="section-label">安全扫描结果</span>
+        <p class="text-dim">请通过智能对话中的 MCP 安全工具获取详细安全审计结果</p>
       </div>
     </div>
   </div>
@@ -72,27 +38,18 @@ import { useSystemStore } from '@/stores/system'
 const store = useSystemStore()
 
 const topIps = computed(() => {
-  const ips = store.authFailures.failed_ips
-  return Object.entries(ips)
-    .map(([ip, count]) => {
-      // Extract user from the authFailures data if available
-      return { ip, count, user: '-' }
-    })
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 5)
+  // 认证失败详情来自 MCP security_auth_failures 工具结果
+  // 当前由 DashboardView 统一展示
+  return [] as { ip: string; count: number; user: string }[]
 })
 
-const alertCount = computed(() => store.authFailures.total)
+const hasNoAlerts = computed(() => true)
+const alertCount = computed(() => 0)
 
-const hasNoAlerts = computed(() => {
-  return topIps.value.length === 0 && alertCount.value === 0
-})
-
-function connColor(n: number): string {
-  if (n >= 10) return 'text-danger'
-  if (n >= 5) return 'text-warning'
-  return 'text-safe'
+function connColor(_n: number): string {
+  return 'safe'
 }
+</script>
 </script>
 
 <style scoped>
@@ -101,7 +58,7 @@ function connColor(n: number): string {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  transition: border-color var(--duration-normal) var(--ease-out);
+  transition: border-color var(--dur-gentle) var(--ease-out);
 }
 .panel-card:hover {
   border-color: var(--border-emphasis);
