@@ -12,3 +12,4 @@ dist/
 skills-lock.json
 .vscode/
 .agents/
+.continue/
