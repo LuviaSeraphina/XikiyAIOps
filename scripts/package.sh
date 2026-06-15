@@ -5,7 +5,7 @@ GREEN='\033[0;32m'; BOLD='\033[1m'; NC='\033[0m'
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$PROJECT_DIR/dist"
-VERSION="v0.2.0"
+VERSION="v1.0.0"
 PKG="sre-agent-${VERSION}"
 
 cd "$PROJECT_DIR"
