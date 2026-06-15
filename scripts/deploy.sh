@@ -18,11 +18,24 @@
 set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
-log_ok()   { echo -e "${GREEN}[OK]${NC}    $*"; }
-log_info() { echo -e "${BLUE}[INFO]${NC}  $*"; }
-log_warn() { echo -e "${YELLOW}[WARN]${NC}  $*"; }
-log_err()  { echo -e "${RED}[ERROR]${NC} $*"; }
+BLUE='\033[0;34m'; BOLD='\033[1m'; CYAN='\033[0;36m'; NC='\033[0m'
+log_ok()   { echo -e "  ${GREEN}[OK]${NC}    $(date +%H:%M:%S) $*"; }
+log_info() { echo -e "  ${BLUE}[INFO]${NC}  $(date +%H:%M:%S) $*"; }
+log_warn() { echo -e "  ${YELLOW}[WARN]${NC}  $(date +%H:%M:%S) $*"; }
+log_err()  { echo -e "  ${RED}[ERROR]${NC} $(date +%H:%M:%S) $*"; }
+log_step() { echo -e "\n  ${CYAN}[···]${NC}  $(date +%H:%M:%S) $*"; }
+# 带实时输出的长命令包装器: 每行前加缩进前缀，不隐藏任何输出
+run_verbose() {
+    echo -e "  ${CYAN}[→]${NC}    $(date +%H:%M:%S) 开始执行..."
+    "$@" 2>&1 | sed -u 's/^/  │ /'
+    local ret=${PIPESTATUS[0]}
+    if [ $ret -eq 0 ]; then
+        echo -e "  ${GREEN}[✓]${NC}    $(date +%H:%M:%S) 完成"
+    else
+        echo -e "  ${RED}[✗]${NC}    $(date +%H:%M:%S) 失败 (退出码: $ret)"
+    fi
+    return $ret
+}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -107,15 +120,33 @@ log_ok "Node: $(node --version) / npm: $(npm --version)"
 
 # 编译工具链 (LoongArch 必备 — 大量包无预编译 wheel)
 if [ "$IS_LOONGARCH" = true ]; then
-    log_info "LoongArch: 安装编译工具链..."
+    log_step "安装编译工具链 (gcc/make/python3-devel/libffi-devel/openssl-devel)..."
     for pkg in gcc gcc-c++ make python3-devel libffi-devel openssl-devel; do
-        install_pkg "$pkg" || log_warn "跳过: $pkg"
+        echo -n "  → 安装 $pkg ... "
+        if install_pkg "$pkg"; then echo -e "${GREEN}✓${NC}"; else echo -e "${YELLOW}跳过${NC}"; fi
     done
     # numpy/pandas/scikit-learn 优先用系统包 (避免源码编译一小时)
-    log_info "LoongArch: 安装 Python 系统包 (numpy/pandas/scikit-learn)..."
+    log_step "安装 Python 系统包 (numpy/pandas/scikit-learn)..."
+    SYS_ML_OK=true
     for pkg in python3-numpy python3-pandas python3-scikit-learn; do
-        install_pkg "$pkg" || log_warn "跳过系统包: $pkg (将尝试 pip 源码编译)"
+        echo -n "  → 安装 $pkg ... "
+        if install_pkg "$pkg"; then
+            echo -e "${GREEN}✓${NC}"
+        else
+            echo -e "${YELLOW}不可用${NC}"
+            SYS_ML_OK=false
+        fi
     done
+    # 验证系统包可在 venv 中导入 (关键: 否则 pip 会尝试源码编译)
+    if [ "$SYS_ML_OK" = true ]; then
+        log_step "验证系统包可导入..."
+        if $PYTHON_BIN -c "import numpy; import pandas; import sklearn; print('numpy',numpy.__version__,'pandas',pandas.__version__)" 2>/dev/null; then
+            echo -e "  ${GREEN}[✓]${NC}    $(date +%H:%M:%S) numpy/pandas/scikit-learn 系统包可用, 将从 pip 安装列表剔除"
+        else
+            log_warn "系统包导入失败, pip 源码编译大概率也会失败, 继续尝试..."
+            SYS_ML_OK=false
+        fi
+    fi
 fi
 
 # ============================================================
@@ -127,25 +158,60 @@ cd "$BACKEND_DIR"
 
 # 虚拟环境
 if [ ! -d ".venv" ]; then
-    $PYTHON_BIN -m venv .venv
-    log_ok "虚拟环境已创建"
+    if [ "$IS_LOONGARCH" = true ] && [ "${SYS_ML_OK:-false}" = true ]; then
+        # LoongArch: 使用 --system-site-packages 以复用 dnf 系统包 (numpy/pandas/scikit-learn)
+        $PYTHON_BIN -m venv .venv --system-site-packages
+        log_ok "虚拟环境已创建 (--system-site-packages, 复用系统 ML 包)"
+    else
+        $PYTHON_BIN -m venv .venv
+        log_ok "虚拟环境已创建"
+    fi
 else
-    log_info "虚拟环境已存在, 跳过"
+    # venv 已存在, 检查是否需要重建 (LoongArch 场景)
+    if [ "$IS_LOONGARCH" = true ] && [ "${SYS_ML_OK:-false}" = true ]; then
+        if ! .venv/bin/python -c "import numpy" 2>/dev/null; then
+            log_warn "已有 venv 无法导入 numpy, 重建为 --system-site-packages..."
+            rm -rf .venv
+            $PYTHON_BIN -m venv .venv --system-site-packages
+            log_ok "虚拟环境已重建 (--system-site-packages)"
+        else
+            log_info "虚拟环境已存在且 numpy 可用, 跳过"
+        fi
+    else
+        log_info "虚拟环境已存在, 跳过"
+    fi
 fi
 source .venv/bin/activate
-pip install --upgrade pip -q
+log_step "升级 pip..."
+pip install --upgrade pip -q && echo -e "  ${GREEN}[✓]${NC}    $(date +%H:%M:%S) pip 已升级"
 
-# 安装依赖 (显示进度, 不做静默)
-log_info "安装 Python 依赖 (可能需要几分钟)..."
+# 安装依赖 (实时显示进度)
+log_step "安装 Python 依赖 (可能需要几分钟)..."
 if [ "$IS_LOONGARCH" = true ]; then
     # 先装 greenlet (SQLAlchemy 异步必需, 麒麟上经常漏)
-    pip install greenlet 2>&1 | tail -3
+    echo ""
+    echo -e "  ${CYAN}--- 安装 greenlet ---${NC}"
+    pip install greenlet 2>&1 | sed -u 's/^/  │ /'
+    echo ""
 fi
-pip install -r requirements.txt 2>&1 | tail -20
+if [ "${SYS_ML_OK:-false}" = true ]; then
+    # 系统包已提供 numpy/pandas/scikit-learn, pip 跳过避免源码编译失败
+    log_info "跳过 numpy/pandas/scikit-learn (已由系统包提供)"
+    grep -v -E '^(numpy|pandas|scikit-learn|pytest|pytest-asyncio)' requirements.txt > /tmp/sre_requirements_filtered.txt
+    echo -e "  ${CYAN}--- pip install ---${NC}"
+    pip install -r /tmp/sre_requirements_filtered.txt 2>&1 | sed -u 's/^/  │ /'
+else
+    echo -e "  ${CYAN}--- pip install ---${NC}"
+    grep -v -E '^(pytest|pytest-asyncio)' requirements.txt > /tmp/sre_requirements_filtered.txt
+    pip install -r /tmp/sre_requirements_filtered.txt 2>&1 | sed -u 's/^/  │ /'
+fi
+echo ""
 
 # 明确校验关键包
-for pkg in fastapi uvicorn sqlalchemy psutil greenlet aiosqlite httpx pydantic pytest; do
-    pip show "$pkg" &>/dev/null || { log_err "$pkg 未安装"; exit 1; }
+log_step "校验关键包..."
+for pkg in fastapi uvicorn sqlalchemy psutil greenlet aiosqlite httpx pydantic; do
+    echo -n "  → $pkg ... "
+    if pip show "$pkg" &>/dev/null; then echo -e "${GREEN}✓${NC}"; else echo -e "${RED}✗ 缺失${NC}"; log_err "$pkg 未安装"; exit 1; fi
 done
 log_ok "后端依赖安装完成 ($(pip list 2>/dev/null | wc -l) 个包)"
 
@@ -163,23 +229,29 @@ fi
 
 # 安装依赖 (强制重装 node_modules 避免 vue-tsc 权限问题)
 if [ -d "node_modules" ]; then
-    log_info "清理旧 node_modules (避免权限问题)..."
+    log_info "清理旧 node_modules..."
     rm -rf node_modules package-lock.json 2>/dev/null || sudo rm -rf node_modules package-lock.json
 fi
 
-log_info "npm install (可能需要几分钟)..."
-npm install 2>&1 | tail -10
+log_info "npm install..."
+echo -e "  ${CYAN}--- npm install ---${NC}"
+npm install 2>&1 | sed -u 's/^/  │ /'
+echo ""
 
 # 验证关键 bin
+log_step "验证构建工具..."
 for bin in node_modules/.bin/vite node_modules/.bin/vue-tsc; do
     if [ ! -x "$bin" ]; then
         log_warn "$bin 不可执行, 修复权限"
         chmod +x "$bin" 2>/dev/null || true
     fi
 done
+echo -e "  ${GREEN}[✓]${NC}    $(date +%H:%M:%S) vite / vue-tsc 就绪"
 
 log_info "npm run build..."
-npm run build 2>&1 | tail -10
+echo -e "  ${CYAN}--- npm run build ---${NC}"
+npm run build 2>&1 | sed -u 's/^/  │ /'
+echo ""
 
 if [ -f "dist/index.html" ]; then
     log_ok "前端构建完成 (dist/index.html)"
@@ -264,13 +336,14 @@ log_ok ".env 已生成"
 
 # 初始化数据库表
 source .venv/bin/activate
+log_step "初始化数据库表..."
 python -c "
 from app.db import init_db
 import asyncio
 asyncio.run(init_db())
 print('数据库表初始化完成')
-" 2>&1 | tail -3
-log_ok "数据库已就绪"
+" 2>&1 | sed -u 's/^/  │ /'
+echo -e "  ${GREEN}[✓]${NC}    $(date +%H:%M:%S) 数据库已就绪"
 
 # ============================================================
 # Step 7: 验证
@@ -319,22 +392,13 @@ else
     echo -e "  ${RED}❌ 发现 $errors 个问题${NC}"
 fi
 
-# ============================================================
-# 启动指引
-# ============================================================
 echo ""
 echo -e "${BOLD}${BLUE}════════════════════════════════════════════════════${NC}"
 echo -e "${BOLD}${BLUE}  启动 SRE-agent${NC}"
 echo -e "${BLUE}════════════════════════════════════════════════════${NC}"
 echo ""
-echo "  # 终端1: 启动后端"
-echo "  cd $BACKEND_DIR"
-echo "  source .venv/bin/activate"
-echo "  .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001"
-echo ""
-echo "  # 终端2: 启动前端 (开发模式)"
-echo "  cd $FRONTEND_DIR"
-echo "  npm run dev"
+echo "  一键启动前后端:"
+echo "  bash scripts/start.sh"
 echo ""
 echo "  访问: http://localhost:5173"
 echo "  API:  http://localhost:8001/docs"
