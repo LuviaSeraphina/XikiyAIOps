@@ -18,6 +18,7 @@ MCP 网络态势感知插件
 
 from app.mcp_plugins._common import(
     run_command as _run_command,
+    _cmd_ok,
     make_response as _make_response,
     error_response as _error_response
 )
@@ -71,15 +72,16 @@ def _get_info(result):
 def network_listening_ports():
     try:
         result=_run_command(["ss","-tlnp"])
-        if result is None:
+        if not _cmd_ok(result):
             return _error_response("network_listening_ports","ss -tlnp 执行失败")
-        if not result:
+        output=result["stdout"]
+        if not output:
             return _make_response("network_listening_ports",
                                 data={"ports":[]},
                                 summary={"total":0}
                                 )
         
-        ports=_get_info(result)
+        ports=_get_info(output)
             
         return _make_response("network_listening_ports",
                             data={"port":ports},
@@ -134,16 +136,17 @@ def _check_connection_alert(states):
 def network_connections_summary():
     try:
         result=_run_command(["ss", "-tan"])
-        if result is None:
+        if not _cmd_ok(result):
             return _error_response("network_connections_summary","ss -tan 执行失败")
-        if not result:
+        output=result["stdout"]
+        if not output:
             return _make_response("network_connections_summary",
                 data={"established":0,"time_wait":0,"close_wait":0,"listen":0},
                 summary={"total":0,"alert":False},
             )
 
         #统计各状态连接数
-        states=_count_tcp_states(result)
+        states=_count_tcp_states(output)
         #提取关键状态
         data=_extract_key_states(states)
         #告警判断
@@ -216,16 +219,17 @@ def _parse_ip_stats(result):
 def network_interface_stats():
     try:
         result=_run_command(["ip", "-s", "link"])
-        if result is None:
+        if not _cmd_ok(result):
             return _error_response("network_interface_stats","ip -s link 执行失败")
-        if not result:
+        output=result["stdout"]
+        if not output:
             return _make_response("network_interface_stats",
                 data={"interfaces":[]},
                 summary={"total_interfaces":0,"active":0,"alert":False},
             )
 
         #解析网卡数据
-        interfaces=_parse_ip_stats(result)
+        interfaces=_parse_ip_stats(output)
         #统计活跃网卡
         active=[iface for iface in interfaces if iface["state"]=="UP"]
         #检查是否有错误或丢包
@@ -258,10 +262,10 @@ def network_firewall_audit():
         nft_exists=_run_command(["which", "nft"])
         ipt_exists=_run_command(["which", "iptables"])
         #补充绝对路径检测 (nft/iptables 通常在 /usr/sbin, 普通用户 which 可能找不到)
-        nft_found=nft_exists and "nft" in nft_exists
+        nft_found=_cmd_ok(nft_exists) and "nft" in nft_exists["stdout"]
         if not nft_found and os.path.exists("/usr/sbin/nft"):
             nft_found=True
-        ipt_found=ipt_exists and "iptables" in ipt_exists
+        ipt_found=_cmd_ok(ipt_exists) and "iptables" in ipt_exists["stdout"]
         if not ipt_found and os.path.exists("/usr/sbin/iptables"):
             ipt_found=True
 
@@ -272,19 +276,21 @@ def network_firewall_audit():
         if nft_found:
             fw_type="nftables"
             result=_run_command(["nft", "list", "ruleset"], timeout=10)
-            if result is None:
+            if not _cmd_ok(result):
                 return _error_response("network_firewall_audit","nft list ruleset 执行失败")
-            lines=result.split("\n") if result else []
+            output=result["stdout"]
+            lines=output.split("\n") if output else []
             rule_count=len([l for l in lines if l.strip()])
 
         elif ipt_found:
             fw_type="iptables"
             for table in ["filter", "nat", "mangle"]:
                 result=_run_command(["iptables", "-t", table, "-L", "-n"], timeout=5)
-                if result is None:
+                if not _cmd_ok(result):
                     return _error_response("network_firewall_audit",f"iptables -t {table} -L -n 执行失败")
-                if result:
-                    lines=[l for l in result.split("\n") if l.strip().startswith(("ACCEPT", "DROP", "REJECT", "Chain"))]
+                output=result["stdout"]
+                if output:
+                    lines=[l for l in output.split("\n") if l.strip().startswith(("ACCEPT", "DROP", "REJECT", "Chain"))]
                     rules.extend(lines)
             rule_count=len(rules)
 
@@ -313,10 +319,11 @@ def network_tcp_retrans():
         retrans_total=0
         conn_count=0
         result=_run_command(["ss", "-ti"], timeout=5)
-        if result is None:
+        if not _cmd_ok(result):
             return _error_response("network_tcp_retrans","ss -ti 执行失败")
-        if result:
-            for line in result.split("\n"):
+        output=result["stdout"]
+        if output:
+            for line in output.split("\n"):
                 if "retrans:" in line:
                     conn_count+=1
                     m=re.search(r"retrans:(\d+)", line)
@@ -327,8 +334,8 @@ def network_tcp_retrans():
 
         return _make_response("network_tcp_retrans",
             data={
-                "connections_checked":conn_count if result else 0,
-                "retransmissions":retrans_total if result else 0,
+                "connections_checked":conn_count if output else 0,
+                "retransmissions":retrans_total if output else 0,
                 "retrans_rate_percent":retrans_rate,
             },
             summary={

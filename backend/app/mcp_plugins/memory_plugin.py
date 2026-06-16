@@ -16,6 +16,7 @@ import psutil
 import re
 from app.mcp_plugins._common import(
     run_command as _run_command,
+    _cmd_ok,
     make_response as _make_response,
     error_response as _error_response,
     alert_if as _alert_if
@@ -106,13 +107,14 @@ def swap_info():
 def memory_oom_history(hours=24):
     try:
         #优先 journalctl, 回退 dmesg
-        output=_run_command([
+        result=_run_command([
             "journalctl","-k","--no-pager","--since",f"{hours}h ago"
         ], timeout=10)
-        if output is None:
-            output=_run_command(["dmesg"],timeout=5)
-        if output is None:
+        if not _cmd_ok(result):
+            result=_run_command(["dmesg"],timeout=5)
+        if not _cmd_ok(result):
             return _error_response("memory_oom_history","dmesg 执行失败")
+        output=result["stdout"]
         if not output:
             return _make_response("memory_oom_history",
                 data={"events":[]},
@@ -152,9 +154,10 @@ def memory_oom_history(hours=24):
 """
 def memory_hugepages():
     try:
-        output=_run_command(["cat", "/proc/meminfo"], timeout=5)
-        if output is None:
+        result=_run_command(["cat", "/proc/meminfo"], timeout=5)
+        if not _cmd_ok(result):
             return _error_response("memory_hugepages","cat /proc/meminfo 执行失败")
+        output=result["stdout"]
         if not output:
             return _make_response("memory_hugepages",
                 data={"total":0,"free":0,"used":0,"usage_percent":0,"page_size_kb":0},
@@ -211,9 +214,10 @@ def memory_hugepages():
 """
 def memory_slab_info():
     try:
-        output=_run_command(["cat", "/proc/meminfo"], timeout=5)
-        if output is None:
+        result=_run_command(["cat", "/proc/meminfo"], timeout=5)
+        if not _cmd_ok(result):
             return _error_response("memory_slab_info","cat /proc/meminfo 执行失败")
+        output=result["stdout"]
         if not output:
             return _make_response("memory_slab_info",
                 data={"slab_total_kb":0,"slab_reclaimable_kb":0,"slab_unreclaimable_kb":0,"slab_total_mb":0.0},

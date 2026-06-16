@@ -10,6 +10,7 @@ import psutil
 from datetime import datetime
 from app.mcp_plugins._common import(
     run_command as _run_command,
+    _cmd_ok,
     make_response as _make_response,
     error_response as _error_response,
 )
@@ -151,9 +152,10 @@ def system_load():
 """
 def system_failed_services():
     try:
-        output=_run_command(["systemctl", "--failed", "--no-legend", "--no-pager"], timeout=10)
-        if output is None:
+        result=_run_command(["systemctl", "--failed", "--no-legend", "--no-pager"], timeout=10)
+        if not _cmd_ok(result):
             return _error_response("system_failed_services","systemctl --failed 执行失败")
+        output=result["stdout"]
         if not output:
             return _make_response("system_failed_services",
                 data={"services":[]},
@@ -190,8 +192,8 @@ def system_failed_services():
 """
 def system_boot_params():
     try:
-        output=_run_command(["cat", "/proc/cmdline"], timeout=5)
-        params=output.strip() if output else ""
+        result=_run_command(["cat", "/proc/cmdline"], timeout=5)
+        params=result["stdout"].strip() if _cmd_ok(result) else ""
 
         #检查关键安全参数是否缺失
         checks={
@@ -230,17 +232,19 @@ def system_package_updates():
 
         if pkg=="dnf":
             result=_run_command(["dnf", "check-update", "--security"], timeout=30)
-            if result is None:
+            if not _cmd_ok(result):
                 return _error_response("system_package_updates","dnf check-update 执行失败")
-            lines=[l for l in result.split("\n") if l.strip() and not l.startswith("Last metadata")]
+            output=result["stdout"]
+            lines=[l for l in output.split("\n") if l.strip() and not l.startswith("Last metadata")]
             #排除空行和标题行
             updates=[l for l in lines if "." in l and " " in l]
             count=len(updates)
         elif pkg=="apt":
             result=_run_command(["apt", "list", "--upgradable"], timeout=15)
-            if result is None:
+            if not _cmd_ok(result):
                 return _error_response("system_package_updates","apt list --upgradable 执行失败")
-            lines=[l for l in result.split("\n") if "/" in l and "upgradable" not in l.lower()]
+            output=result["stdout"]
+            lines=[l for l in output.split("\n") if "/" in l and "upgradable" not in l.lower()]
             count=len(lines)
         else:
             count=-1
@@ -269,8 +273,8 @@ def system_entropy():
         entropy_raw=_run_command(["cat", "/proc/sys/kernel/random/entropy_avail"], timeout=5)
         poolsize_raw=_run_command(["cat", "/proc/sys/kernel/random/poolsize"], timeout=5)
 
-        entropy_avail=int(entropy_raw.strip()) if entropy_raw else 0
-        poolsize=int(poolsize_raw.strip()) if poolsize_raw else 0
+        entropy_avail=int(entropy_raw["stdout"].strip()) if _cmd_ok(entropy_raw) and entropy_raw["stdout"] else 0
+        poolsize=int(poolsize_raw["stdout"].strip()) if _cmd_ok(poolsize_raw) and poolsize_raw["stdout"] else 0
 
         is_critical=entropy_avail<100
         is_low=entropy_avail<500

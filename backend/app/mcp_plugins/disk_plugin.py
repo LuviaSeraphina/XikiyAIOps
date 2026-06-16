@@ -13,7 +13,7 @@ MCP 磁盘巡检工具
 """
 import os
 import psutil
-from app.mcp_plugins._common import make_response as _make_response, error_response as _error_response, run_command as _run_command
+from app.mcp_plugins._common import make_response as _make_response, error_response as _error_response, run_command as _run_command, _cmd_ok
 
 
 disk_inspect_schema={
@@ -163,9 +163,10 @@ def disk_large_files(path="/", top_n=10, min_size_mb=100):
     try:
         #构造固定参数命令(不拼接用户输入)
         cmd=["find",path,"-xdev","-type","f","-size",f"+{min_size_mb}M","-printf","%s\t%p\\n"]
-        output=_run_command(cmd, timeout=30)
-        if output is None:
+        result=_run_command(cmd, timeout=30)
+        if not _cmd_ok(result):
             return _error_response("disk_large_files","find 命令执行失败")
+        output=result["stdout"]
         if not output:
             return _make_response("disk_large_files",
                 data={"files":[]},

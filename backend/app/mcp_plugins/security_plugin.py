@@ -28,6 +28,7 @@ from collections import Counter
 from app.mcp_plugins._common import (
     make_response as _make_response,
     run_command as _run_command,
+    _cmd_ok,
     journalctl_available as _journalctl_available,
     read_log_file as _read_log_file,
     error_response as _error_response,
@@ -50,15 +51,16 @@ _AUTH_FAILURE_PATTERNS=[
 #方法: 从 journalctl 提取认证失败记录
 def _parse_journalctl_auth(hours=24):
     since=f"{hours}h ago"
-    output=_run_command([
+    result=_run_command([
         "journalctl","--no-pager","-o","cat",
         "-t","sshd","-t","sudo","-t","su","-t","login",
         "-t","systemd-logind","-t","polkit",
         "-t","fail2ban","-t","pam_tally2","-t","pam_faillock",
         "--since",since,
     ], timeout=15)
-    if output is None:
+    if not _cmd_ok(result):
         return None
+    output=result["stdout"]
     if not output:
         return []
     return _match_auth_lines(output.split("\n"))
@@ -143,9 +145,10 @@ def security_auth_failures(hours=24):
 
 """
 def _parse_who_output():
-    output=_run_command(["who", "-u"], timeout=5)
-    if output is None:
+    result=_run_command(["who", "-u"], timeout=5)
+    if not _cmd_ok(result):
         return None
+    output=result["stdout"]
     if not output:
         return []
 
@@ -164,9 +167,10 @@ def _parse_who_output():
 
 #方法: 从 ss 获取 ESTABLISHED 的 SSH 连接
 def _parse_ssh_connections():
-    output=_run_command(["ss", "-tnp", "state", "established", "dport", "=", ":22"], timeout=5)
-    if output is None:
+    result=_run_command(["ss", "-tnp", "state", "established", "dport", "=", ":22"], timeout=5)
+    if not _cmd_ok(result):
         return None
+    output=result["stdout"]
     if not output:
         return []
     connections=[]
@@ -218,14 +222,15 @@ def _scan_suid(paths):
     for scan_path in paths:
         if not os.path.isdir(scan_path):
             continue
-        output=_run_command([
+        result=_run_command([
             "find", scan_path, "-maxdepth", "3",
             "-type", "f", "(", "-perm", "-4000", "-o", "-perm", "-2000", ")",
             "-ls",
         ], timeout=30)
-        if output is None:
+        if not _cmd_ok(result):
             failed_paths.append(scan_path)
             continue
+        output=result["stdout"]
         if not output:
             continue
         for line in output.split("\n"):
@@ -297,9 +302,10 @@ def _get_all_users():
 
 #方法: 获取指定用户的 crontab 有效行
 def _parse_crontab(user):
-    output=_run_command(["crontab", "-u", user, "-l"], timeout=5)
-    if output is None:
+    result=_run_command(["crontab", "-u", user, "-l"], timeout=5)
+    if not _cmd_ok(result):
         return None
+    output=result["stdout"]
     if not output or "no crontab" in output.lower():
         return []
     lines=[]
@@ -370,9 +376,10 @@ _KNOWN_MODULE_PREFIXES={
 
 #方法: 解析 lsmod 输出，识别可疑的内核模块
 def _parse_lsmod():
-    output=_run_command(["lsmod"],timeout=5)
-    if output is None:
+    result=_run_command(["lsmod"],timeout=5)
+    if not _cmd_ok(result):
         return None
+    output=result["stdout"]
     if not output:
         return []
     modules=[]
@@ -424,10 +431,10 @@ def security_pending_updates():
     try:
         #优先 dnf (麒麟/红帽系), 回退 apt (Debian 系)
         if os.path.exists("/usr/bin/dnf"):
-            output=_run_command(["dnf","check-update","--security","-q"],timeout=30)
+            result=_run_command(["dnf","check-update","--security","-q"],timeout=30)
             pkg_mgr="dnf"
         elif os.path.exists("/usr/bin/apt"):
-            output=_run_command(["apt","list","--upgradable","-qq"],timeout=30)
+            result=_run_command(["apt","list","--upgradable","-qq"],timeout=30)
             pkg_mgr="apt"
         else:
             return _make_response("security_pending_updates",
@@ -435,8 +442,9 @@ def security_pending_updates():
                 summary={"total": 0, "alert": False},
             )
 
-        if output is None:
+        if not _cmd_ok(result):
             return _error_response("security_pending_updates",f"{pkg_mgr} 更新检查执行失败")
+        output=result["stdout"]
         if not output:
             return _make_response("security_pending_updates",
                 data={"packages":[],"pkg_manager":pkg_mgr},
@@ -490,10 +498,10 @@ def security_sysctl_audit():
         violations=[]
         passed=[]
         for param, (expected, description) in checks.items():
-            output=_run_command(["sysctl", "-n", param], timeout=3)
-            if output is None:
+            result=_run_command(["sysctl", "-n", param], timeout=3)
+            if not _cmd_ok(result):
                 return _error_response("security_sysctl_audit",f"sysctl -n {param} 执行失败")
-            actual=output.strip() if output else ""
+            actual=result["stdout"].strip() if result["stdout"] else ""
             if actual!=expected:
                 violations.append({
                     "param":param,
@@ -688,10 +696,11 @@ def security_selinux_status():
             #getenforce 补充
             try:
                 out=_run_command(["getenforce"], timeout=5)
-                if out is None:
+                if not _cmd_ok(out):
                     return _error_response("security_selinux_status", "getenforce 执行失败")
-                if out and out.strip():
-                    ms=out.strip().lower()
+                output=out["stdout"]
+                if output and output.strip():
+                    ms=output.strip().lower()
                     if ms in ("enforcing", "permissive", "disabled"):
                         se_enabled=True
                         se_mode=ms
@@ -714,7 +723,7 @@ def security_selinux_status():
         #aa-status 命令
         try:
             aa_out=_run_command(["aa-status", "--enabled"], timeout=5)
-            if aa_out is None:
+            if not _cmd_ok(aa_out):
                 return _error_response("security_selinux_status", "aa-status --enabled 执行失败")
             aa_active=True
             aa_enabled=True

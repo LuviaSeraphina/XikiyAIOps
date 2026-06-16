@@ -13,6 +13,7 @@ MCP 容器与虚拟化感知插件
 import json
 from app.mcp_plugins._common import (
     run_command as _run_command,
+    _cmd_ok,
     make_response as _make_response,
     error_response as _error_response,
 )
@@ -24,7 +25,7 @@ from app.mcp_plugins._common import (
 def _detect_container_runtime():
     for cmd in ["docker", "podman"]:
         result=_run_command(["which", cmd], timeout=3)
-        if result and cmd in result:
+        if _cmd_ok(result) and cmd in result["stdout"]:
             return cmd
     return ""
 
@@ -43,11 +44,12 @@ def container_list():
             )
 
         result=_run_command([runtime,"ps","--format","{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"], timeout=10)
-        if result is None:
+        if not _cmd_ok(result):
             return _error_response("container_list",f"{runtime} ps 执行失败")
         containers=[]
-        if result:
-            for line in result.split("\n"):
+        output=result["stdout"]
+        if output:
+            for line in output.split("\n"):
                 parts=line.split("\t")
                 if len(parts)>=4:
                     containers.append({
@@ -76,11 +78,12 @@ def container_stats():
             return _make_response("container_stats",data={"stats":[]},summary={"total":0,"runtime":"none"})
 
         result=_run_command([runtime,"stats","--no-stream","--format","{{.Name}}\t{{.CPUPerc}}\t{{.MemPerc}}\t{{.MemUsage}}\t{{.NetIO}}"], timeout=10)
-        if result is None:
+        if not _cmd_ok(result):
             return _error_response("container_stats",f"{runtime} stats 执行失败")
         stats=[]
-        if result:
-            for line in result.split("\n"):
+        output=result["stdout"]
+        if output:
+            for line in output.split("\n"):
                 parts=line.split("\t")
                 if len(parts)>=5:
                     stats.append({
@@ -112,12 +115,13 @@ def container_inspect(container_name=""):
             return _make_response("container_inspect",data={},summary={"error":"未指定容器名称"})
 
         result=_run_command([runtime,"inspect",container_name], timeout=10)
-        if result is None:
+        if not _cmd_ok(result):
             return _error_response("container_inspect",f"{runtime} inspect 执行失败")
-        if not result:
+        output=result["stdout"]
+        if not output:
             return _make_response("container_inspect",data={},summary={"error":f"容器不存在: {container_name}"})
 
-        data=json.loads(result)
+        data=json.loads(output)
         if not data:
             return _make_response("container_inspect", data={}, summary={"error": "无数据"})
 

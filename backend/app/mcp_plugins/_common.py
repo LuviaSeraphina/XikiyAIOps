@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import subprocess
+import time
 from datetime import datetime
 
 """ 
@@ -77,16 +78,20 @@ _logger=logging.getLogger("sre_agent.mcp")
 """
 方法: run_command(), 安全执行固定参数命令
 
-成功时返回 stdout 字符串, 正常无输出返回 ""。
-执行失败时返回 None 并记录 stderr, 以便上层显式上报。
+v2: 返回结构化 dict {stdout, stderr, exit_code, duration_ms}
+    而非原始字符串, 以便上层采集真实执行数据用于异常回溯。
+
+成功时 stdout 为命令输出, stderr 可能为空或有 warning。
+执行失败时 stdout 为空字符串, stderr 包含错误信息。
 """
 def run_command(cmd, timeout=10):
     #安全校验
     safe,reason=_is_safe_command(cmd)
     if not safe:
-       _logger.warning(f"命令拦截: {' '.join(cmd[:3])} — {reason}")
-       return None
+        _logger.warning(f"命令拦截: {' '.join(cmd[:3])} — {reason}")
+        return {"stdout":"","stderr":reason,"exit_code":-1,"duration_ms":0,"blocked":True}
 
+    start=time.monotonic()
     try:
         result=subprocess.run(
             cmd,
@@ -94,23 +99,52 @@ def run_command(cmd, timeout=10):
             text=True,
             timeout=timeout
         )
+        elapsed_ms=int((time.monotonic() - start) * 1000)
         stdout=result.stdout.strip()
         stderr=(result.stderr or "").strip()
-        if result.returncode!=0 and not stdout:
-            _logger.warning(f"命令执行失败: {' '.join(cmd)} (rc={result.returncode}){f' stderr={stderr}' if stderr else ''}")
-            return None
-        if result.returncode!=0 and stderr:
-            _logger.warning(f"命令返回非 0: {' '.join(cmd)} (rc={result.returncode}){f' stderr={stderr}' if stderr else ''}")
-        return stdout
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        exit_code=result.returncode
+
+        if exit_code!=0 and not stdout:
+            _logger.warning(f"命令执行失败: {' '.join(cmd)} (rc={exit_code}){f' stderr={stderr}' if stderr else ''}")
+        elif exit_code!=0 and stderr:
+            _logger.warning(f"命令返回非 0: {' '.join(cmd)} (rc={exit_code}){f' stderr={stderr}' if stderr else ''}")
+
+        return {
+            "stdout":stdout,
+            "stderr":stderr,
+            "exit_code":exit_code,
+            "duration_ms":elapsed_ms,
+            "blocked":False,
+        }
+    except subprocess.TimeoutExpired:
+        elapsed_ms=int((time.monotonic() - start) * 1000)
+        _logger.warning(f"命令超时: {' '.join(cmd)} (>{timeout}s)")
+        return {"stdout":"","stderr":f"命令超时 (>{timeout}s)","exit_code":-1,"duration_ms":elapsed_ms,"blocked":False}
+    except (FileNotFoundError, OSError) as e:
+        elapsed_ms=int((time.monotonic() - start) * 1000)
         _logger.warning(f"命令执行异常: {' '.join(cmd)} — {e}")
-        return None
+        return {"stdout":"","stderr":str(e),"exit_code":-1,"duration_ms":elapsed_ms,"blocked":False}
 
 """
 方法: journalctl_available(), 检测 journalctl 是否可用
 """
 def journalctl_available():
     return os.path.exists("/usr/bin/journalctl") or os.path.exists("/bin/journalctl")
+
+"""
+方法: _cmd_ok(), 检查 run_command() 返回的 dict 是否表示命令成功执行
+
+插件层统一使用此函数判断, 替代旧版 `if result is None` 模式。
+- blocked → False
+- exit_code≠0 且 stdout 为空 → False  
+- 其他情况 → True (含 exit_code==0 无输出, exit_code≠0 但有 stdout)
+"""
+def _cmd_ok(result):
+    if result["blocked"]:
+        return False
+    if result["exit_code"]!=0 and not result["stdout"]:
+        return False
+    return True
 
 """
 方法: read_log_file(), 安全读取日志文件最后 max_lines 行
