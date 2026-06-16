@@ -22,12 +22,34 @@ FRONTEND_PORT=5173
 PID_BACKEND=""
 PID_FRONTEND=""
 
+# 端口检查: 避免重复启动同一服务导致误触发清理
+check_port_free() {
+  local port="$1"
+  local label="$2"
+  local info=""
+  if ! command -v ss >/dev/null 2>&1; then
+    return 0
+  fi
+  info="$(ss -ltnp "( sport = :$port )" 2>/dev/null | tail -n +2 || true)"
+  if [ -n "$info" ]; then
+    echo -e "  ${RED}[✗]${NC}     ${label} 端口 $port 已被占用:"
+    echo "$info" | sed 's/^/  │ /'
+    echo -e "  ${YELLOW}请先停止已有的 ${label} 服务后再执行脚本${NC}"
+    exit 1
+  fi
+}
+
 # ============================================================
 # 清理函数: Ctrl+C 或脚本退出时终止两个子进程
 # ============================================================
 cleanup() {
+  local reason="${1:-manual}"
   echo ""
-  echo -e "\n  ${YELLOW}[STOP]${NC}  正在停止所有服务..."
+  if [ "$reason" = "manual" ]; then
+    echo -e "\n  ${YELLOW}[STOP]${NC}  正在停止所有服务..."
+  else
+    echo -e "\n  ${RED}[ERROR]${NC}  服务异常退出, 正在停止所有服务..."
+  fi
   if [ -n "$PID_BACKEND" ] && kill -0 "$PID_BACKEND" 2>/dev/null; then
     kill "$PID_BACKEND" 2>/dev/null || true
     wait "$PID_BACKEND" 2>/dev/null || true
@@ -41,7 +63,7 @@ cleanup() {
   echo -e "  ${BLUE}再见!${NC}"
   exit 0
 }
-trap cleanup INT TERM
+trap 'cleanup manual' INT TERM
 
 echo -e "${BOLD}${GREEN}"
 echo "  ╔═══════════════════════════════════════════════════╗"
@@ -123,6 +145,9 @@ fi
 echo -e "\n  ${CYAN}[4/4]${NC} 启动服务..."
 echo ""
 
+check_port_free "$BACKEND_PORT" "后端"
+check_port_free "$FRONTEND_PORT" "前端"
+
 # 启动后端 (后台)
 cd "$BACKEND_DIR"
 source .venv/bin/activate
@@ -177,4 +202,4 @@ echo ""
 
 # 阻塞等待: 任一子进程退出则脚本退出
 wait -n "$PID_BACKEND" "$PID_FRONTEND" 2>/dev/null || true
-cleanup
+cleanup exit
