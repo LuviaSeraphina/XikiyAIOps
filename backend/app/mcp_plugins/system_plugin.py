@@ -1,8 +1,7 @@
 """
 MCP 系统健康感知
 
-覆盖系统基本信息、负载、失败服务检测、平台兼容性识别
-
+v2: 集成 KYSDK 原生硬件检测 (CPU/BIOS/系统版本), 非麒麟回落 psutil + shell
 """
 import os
 import platform
@@ -13,6 +12,7 @@ from app.mcp_plugins._common import(
     _cmd_ok,
     make_response as _make_response,
     error_response as _error_response,
+    _kysdk_import,
 )
 
 
@@ -71,21 +71,52 @@ def _detect_platform():
 """
 方法: system_info(), 系统概览: 主机名/内核/发行版/架构/运行时间
 
+v2: KYSDK SystemInfo 优先 (麒麟原生), 回落 psutil + /etc/os-release
 """
 def system_info():
     try:
-        plat=_detect_platform()
+        #优先 KYSDK
+        SystemInfo=_kysdk_import("SystemInfo")
+        if SystemInfo:
+            try:
+                si=SystemInfo()
+                boot_time_str=None
+                try:
+                    boot_ts=si.get_boot_time()
+                    if boot_ts:
+                        boot_time_str=datetime.fromtimestamp(boot_ts).strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    pass
 
-        #主机名和内核
+                return _make_response("system_info",
+                    data={
+                        "hostname": _sdk_call(si, "get_hostname") or platform.node(),
+                        "os": _sdk_call(si, "get_version", 0) or _sdk_call(si, "get_system_name") or platform.system(),
+                        "kernel": _sdk_call(si, "get_kernel_version") or platform.release(),
+                        "arch": _sdk_call(si, "get_architecture") or platform.machine(),
+                        "boot_time": boot_time_str,
+                        "kylin_production_line": _sdk_call(si, "get_production_line"),
+                        "kylin_major_version": _sdk_call(si, "get_major_version"),
+                        "kylin_alias": _sdk_call(si, "get_version_alias"),
+                        "source": "kysdk.SystemInfo",
+                    },
+                    summary={
+                        "hostname": _sdk_call(si, "get_hostname") or platform.node(),
+                        "os": _sdk_call(si, "get_version", 0) or "Kylin",
+                        "arch": _sdk_call(si, "get_architecture") or platform.machine(),
+                        "source": "kysdk",
+                    },
+                )
+            except Exception:
+                pass  #回落
+
+        #回落 psutil + shell
+        plat=_detect_platform()
         hostname=platform.node()
         kernel=platform.release()
         kernel_version=platform.version()
-
-        #运行时间
         uptime_seconds=int(psutil.boot_time())
         boot_time=datetime.fromtimestamp(uptime_seconds).strftime("%Y-%m-%d %H:%M:%S")
-
-        #CPU 信息, 极端情况 cpu_count 可能返回 None
         cpu_count=psutil.cpu_count(logical=True) or 1
         cpu_physical=psutil.cpu_count(logical=False) or 1
 
@@ -113,6 +144,17 @@ def system_info():
         )
     except Exception as e:
         return _error_response("system_info", e)
+
+
+#方法: 安全调用 SDK 对象方法, 返回 None 表示不可用
+def _sdk_call(obj, method_name, *args):
+    try:
+        method=getattr(obj, method_name, None)
+        if method is None:
+            return None
+        return method(*args)
+    except Exception:
+        return None
 
 
 """
@@ -301,3 +343,133 @@ def system_entropy():
         )
     except Exception as e:
         return _error_response("system_entropy", e)
+
+
+# ── KYSDK 原生硬件检测工具 (麒麟 SDK 优先, 非麒麟回落 shell) ──
+
+"""
+方法: system_cpu_detail(), CPU 详细信息: 厂商/型号/频率/缓存/虚拟化/线程数
+
+KYSDK libkycpu 优先 (15 项 API), 回落 /proc/cpuinfo 解析
+"""
+def system_cpu_detail():
+    try:
+        #尝试通过 KYSDK Hardware 模块获取
+        Hardware=_kysdk_import("Hardware")
+        if Hardware:
+            try:
+                hw=Hardware()
+                cpu_info={
+                    "arch": _sdk_call(hw, "get_cpu_arch") or "unknown",
+                    "vendor": _sdk_call(hw, "get_cpu_vendor") or "unknown",
+                    "model": _sdk_call(hw, "get_cpu_model") or "unknown",
+                    "freq_mhz": _sdk_call(hw, "get_cpu_freq_mhz") or "0",
+                    "cores": _sdk_call(hw, "get_cpu_core_count") or 0,
+                    "threads": _sdk_call(hw, "get_cpu_thread_count") or 0,
+                    "virtualization": _sdk_call(hw, "get_cpu_virtualization") or "unknown",
+                    "l1d_cache_kb": _sdk_call(hw, "get_cpu_l1d_cache") or 0,
+                    "l1i_cache_kb": _sdk_call(hw, "get_cpu_l1i_cache") or 0,
+                    "l2_cache_kb": _sdk_call(hw, "get_cpu_l2_cache") or 0,
+                    "l3_cache_kb": _sdk_call(hw, "get_cpu_l3_cache") or 0,
+                    "max_freq_mhz": _sdk_call(hw, "get_cpu_max_freq_mhz") or 0,
+                    "min_freq_mhz": _sdk_call(hw, "get_cpu_min_freq_mhz") or 0,
+                    "sockets": _sdk_call(hw, "get_cpu_sockets") or 0,
+                    "source": "kysdk.Hardware",
+                }
+                if cpu_info["vendor"]!="unknown":
+                    return _make_response("system_cpu_detail",
+                        data=cpu_info,
+                        summary={
+                            "model": cpu_info["model"],
+                            "cores": cpu_info["cores"],
+                            "source": "kysdk.Hardware",
+                        },
+                    )
+            except Exception:
+                pass
+
+        #回落 /proc/cpuinfo
+        result=_run_command(["cat", "/proc/cpuinfo"], timeout=5)
+        if not _cmd_ok(result):
+            return _error_response("system_cpu_detail", "读取 /proc/cpuinfo 失败")
+        cpuinfo=result["stdout"]
+        info={}
+        for line in cpuinfo.split("\n"):
+            if ":" in line:
+                k,v=line.split(":",1)
+                k=k.strip(); v=v.strip()
+                if k in ("vendor_id","model name","cpu cores","siblings","cpu MHz","cache size"):
+                    info[k]=v
+                if k=="flags":
+                    info["flags"]=v.split()[:15]
+
+        return _make_response("system_cpu_detail",
+            data={
+                "vendor": info.get("vendor_id","unknown"),
+                "model": info.get("model name","unknown"),
+                "cores": int(info.get("cpu cores",0)),
+                "threads": int(info.get("siblings",0)),
+                "freq_mhz": info.get("cpu MHz","0"),
+                "cache": info.get("cache size","unknown"),
+                "flags_sample": info.get("flags",[]),
+                "source": "/proc/cpuinfo",
+            },
+            summary={
+                "model": info.get("model name","unknown")[:50],
+                "cores": int(info.get("cpu cores",0)),
+                "source": "/proc/cpuinfo",
+            },
+        )
+    except Exception as e:
+        return _error_response("system_cpu_detail", e)
+
+
+"""
+方法: system_bios_info(), BIOS 信息: 厂商/版本/日期/类型
+
+KYSDK libkybios 优先, 回落 dmidecode (需 root)
+"""
+def system_bios_info():
+    try:
+        #优先通过 KYSDK Hardware 模块
+        Hardware=_kysdk_import("Hardware")
+        if Hardware:
+            try:
+                hw=Hardware()
+                bios={
+                    "vendor": _sdk_call(hw, "get_bios_vendor"),
+                    "version": _sdk_call(hw, "get_bios_version"),
+                    "date": _sdk_call(hw, "get_bios_date"),
+                    "type": _sdk_call(hw, "get_bios_type"),
+                    "source": "kysdk.Hardware",
+                }
+                if any(bios.values()):
+                    return _make_response("system_bios_info",
+                        data=bios,
+                        summary={"vendor": bios.get("vendor","unknown"), "source": "kysdk.Hardware"},
+                    )
+            except Exception:
+                pass
+
+        #回落 dmidecode (需 root)
+        result=_run_command(["dmidecode", "-t", "bios"], timeout=5)
+        if not _cmd_ok(result):
+            return _make_response("system_bios_info",
+                data={"source": "unavailable"},
+                summary={"alert": False, "alert_reason": "dmidecode 不可用 (需 root), 无法获取 BIOS 信息"},
+            )
+        output=result["stdout"]
+        info={}
+        for line in output.split("\n"):
+            if ":" in line:
+                k,v=line.split(":",1)
+                k=k.strip(); v=v.strip()
+                if k in ("Vendor","Version","Release Date"):
+                    info[k.lower().replace(" ","_")]=v
+
+        return _make_response("system_bios_info",
+            data={**info, "source": "dmidecode"},
+            summary={"vendor": info.get("vendor","unknown"), "source": "dmidecode"},
+        )
+    except Exception as e:
+        return _error_response("system_bios_info", e)

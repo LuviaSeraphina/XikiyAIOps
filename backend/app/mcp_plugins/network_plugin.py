@@ -20,7 +20,8 @@ from app.mcp_plugins._common import(
     run_command as _run_command,
     _cmd_ok,
     make_response as _make_response,
-    error_response as _error_response
+    error_response as _error_response,
+    _kysdk_import,
 )
 from collections import Counter
 import re
@@ -216,8 +217,50 @@ def _parse_ip_stats(result):
 方法: network_interface_stats(), 网卡流量与错误统计, 识别丢包/错误异常
 
 """
+"""
+方法: network_interface_stats(), 网卡流量与错误统计
+
+v2: KYSDK NetworkManager 优先 (22 项 API 精确采集), 回落 ip -s link 正则解析
+"""
 def network_interface_stats():
     try:
+        #优先 KYSDK NetworkManager
+        NetworkManager=_kysdk_import("NetworkManager")
+        if NetworkManager:
+            try:
+                nm=NetworkManager()
+                cards=nm.get_card_list()
+                if cards:
+                    interfaces=[]
+                    for nc in cards:
+                        iface={
+                            "name": nc,
+                            "state": "UP" if nm.is_up(nc) else "DOWN",
+                            "mac": nm.get_phymac(nc),
+                            "ipv4": nm.get_private_ipv4(nc),
+                            "ipv6": nm.get_private_ipv6(nc),
+                            "driver": nm.get_driver(nc),
+                            "speed": nm.get_speed(nc),
+                            "rx_bytes": nm.get_rx_bytes(nc),
+                            "tx_bytes": nm.get_tx_bytes(nc),
+                            "source": "kysdk.NetworkManager",
+                        }
+                        interfaces.append(iface)
+
+                    active=[i for i in interfaces if i["state"]=="UP"]
+                    return _make_response("network_interface_stats",
+                        data={"interfaces": interfaces},
+                        summary={
+                            "total_interfaces": len(interfaces),
+                            "active": len(active),
+                            "source": "kysdk.NetworkManager",
+                            "alert": False,
+                        },
+                    )
+            except Exception:
+                pass
+
+        #回落 ip -s link
         result=_run_command(["ip", "-s", "link"])
         if not _cmd_ok(result):
             return _error_response("network_interface_stats","ip -s link 执行失败")
@@ -253,12 +296,35 @@ def network_interface_stats():
 
 
 """
-方法: network_firewall_audit(), 防火墙规则审计 — iptables/nftables 规则统计
+方法: network_firewall_audit(), 防火墙规则审计
 
+v2: KYSDK Firewall 优先 (结构化规则), 回落 nft/iptables
 """
 def network_firewall_audit():
     try:
-        #检测防火墙类型 — which + 绝对路径双重检查
+        #优先 KYSDK Firewall
+        Firewall=_kysdk_import("Firewall")
+        if Firewall:
+            try:
+                fw=Firewall()
+                rules=fw.list_rules()
+                if rules is not None:
+                    return _make_response("network_firewall_audit",
+                        data={
+                            "firewall_type": "kysdk.Firewall",
+                            "rules": rules if isinstance(rules, list) else [rules],
+                            "rule_count": len(rules) if isinstance(rules, list) else 1,
+                        },
+                        summary={
+                            "type": "kysdk.Firewall",
+                            "rules": len(rules) if isinstance(rules, list) else 0,
+                            "alert": False,
+                        },
+                    )
+            except Exception:
+                pass
+
+        #回落 nft/iptables 检测
         nft_exists=_run_command(["which", "nft"])
         ipt_exists=_run_command(["which", "iptables"])
         #补充绝对路径检测 (nft/iptables 通常在 /usr/sbin, 普通用户 which 可能找不到)

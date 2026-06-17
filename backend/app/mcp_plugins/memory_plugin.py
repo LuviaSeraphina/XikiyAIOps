@@ -1,16 +1,7 @@
 """
 MCP 内存与 OOM 监控插件
 
-提供三项内存健康检查能力：
-
-1. memory_info         — 物理内存画像(总量/已用/可用/使用率)
-2. swap_info           — Swap 交换分区画像(使用率 > 50% 预警)
-3. memory_oom_history  — OOM Killer 历史事件提取(journalctl / dmesg)
-
-数据源: psutil + journalctl(自动降级到 dmesg)
-所有操作均为只读(risk_level: read_only)，适合 MCP Agent 内存健康巡检调用。
-返回统一 JSON 结构: {tool, timestamp, risk_level, data, summary}
-
+v2: KYSDK SystemInfo 优先 (麒麟原生), 回落 psutil
 """
 import psutil
 import re
@@ -19,7 +10,8 @@ from app.mcp_plugins._common import(
     _cmd_ok,
     make_response as _make_response,
     error_response as _error_response,
-    alert_if as _alert_if
+    alert_if as _alert_if,
+    _kysdk_import,
 )
 
 # GB 单位
@@ -37,9 +29,32 @@ _OOM_KILLED_PATTERN=re.compile(r"Killed process (\d+) \((.+?)\)")
 """
 方法: memory_info(), 物理内存画像
 
+v2: KYSDK SystemInfo 优先 (麒麟原生), 回落 psutil
 """
 def memory_info():
     try:
+        #优先 KYSDK
+        SystemInfo=_kysdk_import("SystemInfo")
+        if SystemInfo:
+            try:
+                si=SystemInfo()
+                mem=si.get_memory_info()
+                if mem and isinstance(mem, dict):
+                    usage_percent=mem.get("used_percent", 0)
+                    alert=usage_percent>90
+                    return _make_response("memory_info",
+                        data={**mem, "source": "kysdk.SystemInfo"},
+                        summary={
+                            "usage_percent": usage_percent,
+                            "alert": alert,
+                            "alert_reason": _alert_if(alert, "物理内存({}%)即将耗尽", usage_percent),
+                            "source": "kysdk.SystemInfo",
+                        },
+                    )
+            except Exception:
+                pass
+
+        #回落 psutil
         mem=psutil.virtual_memory()
 
         #物理内存

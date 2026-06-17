@@ -37,6 +37,7 @@ _ALLOWED_COMMANDS={
     "journalctl","dmesg","cat","crontab","sysctl",
     "docker","podman","which","dnf","yum","apt",
     "iptables","nft","getenforce","aa-status","dig","getent",
+    "dmidecode","groups",
 }
 
 # 高危参数模式 — 分三类匹配, 避免子串误伤 (如 rm 匹配 format)
@@ -45,7 +46,7 @@ _ALLOWED_COMMANDS={
 #   子串:   操作符匹配任意位置
 _DANGEROUS_WORD={"rm","mkfs","dd","shutdown","reboot","poweroff","halt","chmod","chown"}
 _DANGEROUS_FLAG={"-rf","-r"}
-_DANGEROUS_SUBSTR={">",">>","&&"}
+_DANGEROUS_SUBSTR={">",">>","&&",";","|","`","$(","${"}
 
 #方法: 在 run_command 前校验命令安全性
 def _is_safe_command(cmd):
@@ -165,3 +166,42 @@ def read_log_file(path, max_lines=2000):
 #方法: 告警句式辅助
 def alert_if(condition, template, *args):
     return template.format(*args) if condition else ""
+
+# ── KYSDK 麒麟原生 SDK 支持 ──────────────────────────────
+#KYSDK 是麒麟操作系统的原生 Python SDK, 提供系统信息/硬件/安全/网络等 API,
+#替代 shell 命令采集, 零注入风险, 精度更高。非麒麟环境自动降级为 shell 方案。
+
+#模块级惰性导入标记: True=可用, False=不可用, None=未检测
+_KYSDK_AVAILABLE=None
+
+"""
+方法: _kysdk_available(), 检测 KYSDK Python SDK 是否可导入
+
+一次检测, 结果缓存于模块变量 _KYSDK_AVAILABLE。
+非麒麟系统返回 False, 调用方应回落 shell 方案。
+"""
+def _kysdk_available():
+    global _KYSDK_AVAILABLE
+    if _KYSDK_AVAILABLE is not None:
+        return _KYSDK_AVAILABLE
+    try:
+        import kysdk
+        _KYSDK_AVAILABLE=True
+    except ImportError:
+        _KYSDK_AVAILABLE=False
+    return _KYSDK_AVAILABLE
+
+"""
+方法: _kysdk_import(module_name), 安全按需导入 KYSDK 子模块
+
+成功返回模块对象, 失败返回 None (调用方自行处理降级)。
+用法: sdk=_kysdk_import("SystemInfo"); if sdk: sdk.get_cpu_usage()
+"""
+def _kysdk_import(name):
+    if not _kysdk_available():
+        return None
+    try:
+        mod=__import__("kysdk", fromlist=[name])
+        return getattr(mod, name, None)
+    except (ImportError, AttributeError):
+        return None

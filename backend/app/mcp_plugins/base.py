@@ -267,9 +267,25 @@ def _auto_register_all(reg):
     ))
     reg.register(MCPTool(
         name="security_selinux_status",
-        description="SELinux/AppArmor 运行模式检测: 检查 SELinux enforce 状态和 AppArmor 是否活跃, 均未启用时告警",
+        description="SELinux/AppArmor 运行模式检测: KYSDK Selinux 优先, 回落 getenforce + aa-status",
         handler=_safe_import("app.mcp_plugins.security_plugin", "security_selinux_status"),
         risk_level=RiskLevel.READ_ONLY,
+    ))
+    #KYSDK 新增: 密码策略 + 用户权限审计
+    reg.register(MCPTool(
+        name="security_password_policy",
+        description="系统密码复杂度策略检查: KYSDK UserAuth 优先, 回落 PAM 配置解析",
+        handler=_safe_import("app.mcp_plugins.security_plugin", "security_password_policy"),
+        risk_level=RiskLevel.READ_ONLY,
+    ))
+    reg.register(MCPTool(
+        name="security_user_privilege",
+        description="指定用户权限审计: KYSDK UserAuth 优先 (sudo权限+home目录), 回落 sudo -l",
+        handler=_safe_import("app.mcp_plugins.security_plugin", "security_user_privilege"),
+        risk_level=RiskLevel.READ_ONLY,
+        parameters={
+            "username": {"type": "string", "pattern": "^[a-zA-Z_][a-zA-Z0-9._-]{0,31}$", "description": "要审计的用户名 (仅字母数字._-, 最长32字符)"},
+        },
     ))
     reg.register(MCPTool(
         name="system_info",
@@ -369,6 +385,19 @@ def _auto_register_all(reg):
         name="system_entropy",
         description="内核熵池可用量 — 读取 /proc/sys/kernel/random/entropy_avail, 低熵(<500)影响 TLS/SSH 等加密服务",
         handler=_safe_import("app.mcp_plugins.system_plugin", "system_entropy"),
+        risk_level=RiskLevel.READ_ONLY,
+    ))
+    #KYSDK 新增: CPU 详情 + BIOS 信息
+    reg.register(MCPTool(
+        name="system_cpu_detail",
+        description="CPU 详细信息: 厂商/型号/频率/核心/线程/缓存(L1/L2/L3)/虚拟化 — KYSDK libkycpu 优先",
+        handler=_safe_import("app.mcp_plugins.system_plugin", "system_cpu_detail"),
+        risk_level=RiskLevel.READ_ONLY,
+    ))
+    reg.register(MCPTool(
+        name="system_bios_info",
+        description="BIOS 信息: 厂商/版本/日期/类型 — KYSDK libkybios 优先, 回落 dmidecode",
+        handler=_safe_import("app.mcp_plugins.system_plugin", "system_bios_info"),
         risk_level=RiskLevel.READ_ONLY,
     ))
 
