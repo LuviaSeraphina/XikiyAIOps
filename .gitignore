@@ -17,3 +17,6 @@ TODO/异常回溯待优化项.md
 scripts/package.sh
 backend/vendor/
 .pytest_cache/
+temp/
+offline-packages/
+build-loongarch-wheels.sh
