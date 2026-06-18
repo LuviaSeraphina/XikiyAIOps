@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# SRE-agent 一键部署脚本 v3.0
+# SRE-agent 一键部署脚本 v1.0.0
 #
 # 适配: 麒麟 V10/V11 (x86_64 / LoongArch64) + Ubuntu/Debian
 # 用法: bash scripts/deploy.sh
@@ -26,7 +26,7 @@ ACTUAL_HOME="$(eval echo ~"$ACTUAL_USER")"
 
 echo -e "${BOLD}${GREEN}"
 echo "  ╔═══════════════════════════════════════════════════╗"
-echo "  ║     SRE-agent 一键部署 v3.0                        ║"
+echo "  ║     SRE-agent 一键部署 v1.0.0                      ║"
 echo "  ║     麒麟 V10/V11 (LoongArch) + 通用 Linux          ║"
 echo "  ╚═══════════════════════════════════════════════════╝"
 echo -e "${NC}"
@@ -34,7 +34,7 @@ echo -e "${NC}"
 # ============================================================
 # Step 1: 检测系统环境
 # ============================================================
-echo -e "\n${BOLD}▶ Step 1/8: 检测系统环境${NC}"
+echo -e "\n${BOLD}▶ Step 1/7: 检测系统环境${NC}"
 
 ARCH="$(uname -m)"
 IS_LOONGARCH=false
@@ -84,7 +84,7 @@ install_pkg() {
 # ============================================================
 # Step 2: 安装系统依赖
 # ============================================================
-echo -e "\n${BOLD}▶ Step 2/8: 安装系统依赖${NC}"
+echo -e "\n${BOLD}▶ Step 2/7: 安装系统依赖${NC}"
 
 #离线 RPM 优先 — 解压直接安装, 跳过在线源
 if [ "$_HAS_RPM_ZIP" = true ]; then
@@ -135,7 +135,10 @@ if [ "$IS_LOONGARCH" = true ]; then
   done
 
   #升级 Rust (Cargo>=1.85 才能用新版 maturin, 否则回退 maturin 1.7.1)
-  #策略: 版本够→跳过 → 本地离线包 → rustup 多镜像 → Loongnix FTP → maturin 1.7.1 兜底
+  #有离线 wheel 包时跳过: maturin 已在 vendor 中, 无需编译
+  if [ "$_HAS_WHEEL_TAR" = true ]; then
+    log_info "检测到离线 wheel 包, 跳过 Rust 升级 (maturin 已预编译)"
+  else
   _CARGO_VER=$(cargo --version 2>/dev/null | grep -oP '\d+\.\d+' | head -1 || echo "0.0")
   if [ "$(printf '%s\n' "1.85" "$_CARGO_VER" | sort -V | head -1)" = "1.85" ]; then
     log_info "Cargo $_CARGO_VER >= 1.85, 跳过升级"
@@ -218,6 +221,7 @@ if [ "$IS_LOONGARCH" = true ]; then
       log_warn "Rust 升级全部策略失败, 保持 $_CARGO_VER → 将用 maturin 1.7.1"
     fi
   fi
+  fi  # _HAS_WHEEL_TAR 闭合
   log_info "Rust: $(rustc --version 2>/dev/null || echo 'N/A')"
 
   log_step "安装科学计算系统包..."
@@ -235,14 +239,15 @@ fi
 # ============================================================
 # Step 3: Python 虚拟环境 + 后端依赖
 # ============================================================
-echo -e "\n${BOLD}▶ Step 3/8: 安装后端依赖${NC}"
+echo -e "\n${BOLD}▶ Step 3/7: 安装后端依赖${NC}"
 cd "$BACKEND_DIR"
 
 #加速: 多源回退 (Loongnix 备用 → TUNA → PyPI), 单个源挂了自动切
-#pypi.loongnix.cn 主源不稳定(502), 改用龙芯备用源 lpypi.loongnix.cn
-log_step "配置 pip 多源回退..."
-mkdir -p "$ACTUAL_HOME/.config/pip"
-cat > "$ACTUAL_HOME/.config/pip/pip.conf" << 'PIPEOF'
+#有离线 wheel 包时跳过 (不需要联网)
+if [ "$_HAS_WHEEL_TAR" != true ]; then
+  log_step "配置 pip 多源回退..."
+  mkdir -p "$ACTUAL_HOME/.config/pip"
+  cat > "$ACTUAL_HOME/.config/pip/pip.conf" << 'PIPEOF'
 [global]
 timeout = 60
 index-url = https://lpypi.loongnix.cn/loongson/pypi/+simple/
@@ -251,13 +256,11 @@ extra-index-url = https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple https://p
 [install]
 trusted-host = lpypi.loongnix.cn mirrors.tuna.tsinghua.edu.cn pypi.org
 PIPEOF
-log_info "pip: Loongnix 备用(lpypi) → 清华 TUNA → PyPI (自动逐包回退)"
-#Cargo 镜像 (Rust 构建 pydantic-core/maturin 需要)
-#强制覆盖: 旧 USTC 镜像 URL 已失效 (404), 统一用 TUNA sparse 协议
-mkdir -p "$ACTUAL_HOME/.cargo"
-#移除旧格式 config (Cargo 优先读 config.toml)
-rm -f "$ACTUAL_HOME/.cargo/config"
-cat > "$ACTUAL_HOME/.cargo/config.toml" << 'CARGOEOF'
+  log_info "pip: Loongnix 备用(lpypi) → 清华 TUNA → PyPI (自动逐包回退)"
+  #Cargo 镜像 (Rust 构建 pydantic-core/maturin 需要)
+  mkdir -p "$ACTUAL_HOME/.cargo"
+  rm -f "$ACTUAL_HOME/.cargo/config"
+  cat > "$ACTUAL_HOME/.cargo/config.toml" << 'CARGOEOF'
 [source.crates-io]
 replace-with = 'tuna'
 
@@ -267,7 +270,10 @@ registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
 [source.ustc]
 registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"
 CARGOEOF
-log_ok "Cargo 镜像已配置 (TUNA sparse, 旧 USTC 配置已清除)"
+  log_ok "Cargo 镜像已配置 (TUNA sparse)"
+else
+  log_info "离线 wheel 模式: 跳过 pip/cargo 镜像配置"
+fi
 
 # ── 虚拟环境 ─────────────────────────────────────────────
 VENV_DIR="$BACKEND_DIR/.venv"
@@ -310,7 +316,8 @@ VENV_PYTHON="$VENV_DIR/bin/python"
 log_ok "pip 已升级"
 
 # ── LoongArch: 构建环境准备 ──────────────────────────────
-if [ "$IS_LOONGARCH" = true ]; then
+#有离线 wheel 包时跳过: greenlet/maturin 已在 vendor 中
+if [ "$IS_LOONGARCH" = true ] && [ "$_HAS_WHEEL_TAR" != true ]; then
   log_step "预装构建依赖 + 禁用 PEP 517 构建隔离..."
   #greenlet: SQLAlchemy 异步必需, 有 C 扩展
   "$VENV_PIP" install greenlet 2>&1 | sed -u 's/^/  │ /'
@@ -358,29 +365,48 @@ if [ -d "$VENDOR_DIR" ] && [ "$(find "$VENDOR_DIR" -maxdepth 1 -name "*.whl" 2>/
     log_ok "离线安装成功"
   else
     log_warn "vendor/ 架构不匹配, 回退在线安装"
-    "$VENV_PIP" install -r requirements.txt --progress-bar on 2>&1 | sed -u 's/^/  │ /'
+    if "$VENV_PIP" install -r requirements.txt --progress-bar on 2>&1 | sed -u 's/^/  │ /'; then
+      :
+    else
+      log_warn "多源回退失败, 切换清华 TUNA 直连重试..."
+      "$VENV_PIP" install -r requirements.txt \
+        -i https://pypi.tuna.tsinghua.edu.cn/simple \
+        --trusted-host pypi.tuna.tsinghua.edu.cn \
+        --progress-bar on 2>&1 | sed -u 's/^/  │ /'
+    fi
   fi
 else
   log_info "从 PyPI 在线安装..."
-  "$VENV_PIP" install -r requirements.txt --progress-bar on 2>&1 | sed -u 's/^/  │ /'
+  if "$VENV_PIP" install -r requirements.txt --progress-bar on 2>&1 | sed -u 's/^/  │ /'; then
+    :
+  else
+    log_warn "多源回退失败, 切换清华 TUNA 直连重试..."
+    "$VENV_PIP" install -r requirements.txt \
+      -i https://pypi.tuna.tsinghua.edu.cn/simple \
+      --trusted-host pypi.tuna.tsinghua.edu.cn \
+      --progress-bar on 2>&1 | sed -u 's/^/  │ /'
+  fi
 fi
 
-# ── 缓存 wheel (从 venv 本地导出, 架构正确) ──────────────
-log_info "从 venv 导出 wheel 到 vendor/ (本地, 不联网)..."
-mkdir -p "$VENDOR_DIR"
-#清掉旧 x86_64 wheel (避免下次离线安装命中错误架构)
-find "$VENDOR_DIR" -name "*.whl" -delete 2>/dev/null || true
-#从已安装包逐包导出, --no-build-isolation 复用当前 venv, 零网络
-_WHEEL_PKGS=$("$VENV_PIP" freeze 2>/dev/null | grep -v "^pip=\|^setuptools=\|^wheel=\|@ file" | cut -d= -f1 | tr '\n' ' ')
-_WHEEL_OK=0; _WHEEL_SKIP=0
-for _pkg in $_WHEEL_PKGS; do
-  if "$VENV_PIP" wheel --no-deps --no-build-isolation --wheel-dir="$VENDOR_DIR" "$_pkg" 2>&1 | tail -3 | grep -qE "Created wheel|Stored|Successfully built|Filename"; then
-    ((_WHEEL_OK+=1))
-  else
-    ((_WHEEL_SKIP+=1))
-  fi
-done
-log_ok "vendor/ 已刷新: $_WHEEL_OK 个本架构 wheel (${_WHEEL_SKIP} 个跳过)"
+# ── 缓存 wheel (从 venv 本地导出) ────────────────────────
+#已有离线包时跳过: vendor 已从 wheels.tar.gz 解压, 架构正确
+if [ "$_HAS_WHEEL_TAR" != true ]; then
+  log_info "从 venv 导出 wheel 到 vendor/ (本地, 不联网)..."
+  mkdir -p "$VENDOR_DIR"
+  find "$VENDOR_DIR" -name "*.whl" -delete 2>/dev/null || true
+  _WHEEL_PKGS=$("$VENV_PIP" freeze 2>/dev/null | grep -v "^pip=\|^setuptools=\|^wheel=\|@ file" | cut -d= -f1 | tr '\n' ' ')
+  _WHEEL_OK=0; _WHEEL_SKIP=0
+  for _pkg in $_WHEEL_PKGS; do
+    if "$VENV_PIP" wheel --no-deps --no-build-isolation --wheel-dir="$VENDOR_DIR" "$_pkg" 2>&1 | tail -3 | grep -qE "Created wheel|Stored|Successfully built|Filename"; then
+      ((_WHEEL_OK+=1))
+    else
+      ((_WHEEL_SKIP+=1))
+    fi
+  done
+  log_ok "vendor/ 已刷新: $_WHEEL_OK 个本架构 wheel (${_WHEEL_SKIP} 个跳过)"
+else
+  log_info "离线 wheel 模式: 跳过重导出, vendor/ 已就绪"
+fi
 echo ""
 
 # ── 校验关键包 ───────────────────────────────────────────
@@ -402,16 +428,18 @@ log_ok "后端依赖就绪 ($("$VENV_PIP" list 2>/dev/null | wc -l) 个包)"
 # Step 4: 前端构建
 # ============================================================
 if [ -d "$FRONTEND_DIR/dist" ] && [ -f "$FRONTEND_DIR/dist/index.html" ]; then
-  echo -e "\n${BOLD}▶ Step 4/8: 前端 (已构建, 跳过)${NC}"
+  echo -e "\n${BOLD}▶ Step 4/7: 前端 (已构建, 跳过)${NC}"
   log_info "检测到 frontend/dist/ — 安装包自带构建产物"
 else
-  echo -e "\n${BOLD}▶ Step 4/8: 前端依赖 + 构建${NC}"
+  echo -e "\n${BOLD}▶ Step 4/7: 前端依赖 + 构建${NC}"
   cd "$FRONTEND_DIR"
 
   #清理旧构建产物 (可能属于 root)
   [ -d "dist" ] && { rm -rf dist 2>/dev/null || sudo rm -rf dist; }
   [ -d "node_modules" ] && { rm -rf node_modules package-lock.json 2>/dev/null || sudo rm -rf node_modules package-lock.json; }
 
+  #npm 国内镜像加速
+  npm config set registry https://registry.npmmirror.com 2>/dev/null || true
   log_info "npm install..."
   npm install 2>&1 | sed -u 's/^/  │ /'
   echo ""
@@ -436,7 +464,7 @@ fi
 # ============================================================
 # Step 5: 配置 LLM
 # ============================================================
-echo -e "\n${BOLD}▶ Step 5/8: 配置 LLM${NC}"
+echo -e "\n${BOLD}▶ Step 5/7: 配置 LLM${NC}"
 cd "$BACKEND_DIR"
 
 echo ""
@@ -479,7 +507,7 @@ fi
 # ============================================================
 # Step 6: 生成 .env + 初始化数据库
 # ============================================================
-echo -e "\n${BOLD}▶ Step 6/8: 配置 + 数据库初始化${NC}"
+echo -e "\n${BOLD}▶ Step 6/7: 配置 + 数据库初始化${NC}"
 cd "$BACKEND_DIR"
 
 mkdir -p data
@@ -487,7 +515,7 @@ sudo chown -R "$ACTUAL_USER:$(id -gn "$ACTUAL_USER")" data/ 2>/dev/null || true
 chmod 755 data
 
 cat > .env << EOF
-# SRE-agent 配置 (deploy.sh v3.0 自动生成)
+# SRE-agent 配置 (deploy.sh v1.0.0 自动生成)
 LLM_PROVIDER=$LLM_PROVIDER
 LLM_BASE_URL=$LLM_BASE_URL
 LLM_MODEL=$LLM_MODEL
@@ -511,7 +539,7 @@ print('数据库表初始化完成')
 log_ok "数据库就绪"
 
 # ============================================================
-# Step 7: 部署验证
+# Step 7/7: 部署验证
 # ============================================================
 echo -e "\n${BOLD}▶ Step 7/8: 部署验证${NC}"
 errors=0
@@ -555,68 +583,23 @@ else
   echo -e "  ${RED}❌ 发现 $errors 个问题${NC}"
 fi
 
-# ============================================================
-# Step 8: 生成安装包 (可选)
-# ============================================================
-echo -e "\n${BOLD}▶ Step 8/8: 生成安装包 (可选)${NC}"
-echo ""
-echo -n "  是否生成当前架构安装包？[y/N] "
-read -r do_package
-
-if [ "${do_package:-n}" != "y" ] && [ "${do_package:-n}" != "Y" ]; then
-  log_info "跳过打包"
-else
-  cd "$PROJECT_DIR"
-  DIST_DIR="$PROJECT_DIR/dist"
-  VERSION="v3.0.0"
-  PKG_NAME="sre-agent-${VERSION}-${ARCH}-$(date +%Y%m%d)"
-  mkdir -p "$DIST_DIR"
-
-  log_info "打包 $PKG_NAME (架构: $ARCH)..."
-
-  #校验 vendor/ 是否包含当前架构的 wheel
-  VENDOR_COUNT=0
-  if [ -d "backend/vendor" ]; then
-    VENDOR_COUNT=$(find backend/vendor -maxdepth 1 -name "*.whl" 2>/dev/null | wc -l)
-  fi
-  if [ "$VENDOR_COUNT" -gt 0 ]; then
-    log_info "vendor/ 含 ${VENDOR_COUNT} 个 ${ARCH} wheel, 一并打包"
-    #backend/ 目录已包含 vendor/*.whl, 无需单独追加
-  elif [ "$IS_LOONGARCH" = true ]; then
-    log_warn "vendor/ 无 wheel — LoongArch 离线安装将回退在线编译"
-  fi
-
-  #前端: 有 dist 则只打包 dist, 否则打包整个 frontend/
-  if [ -d "$FRONTEND_DIR/dist" ] && [ -f "$FRONTEND_DIR/dist/index.html" ]; then
-    FRONTEND_INC="frontend/dist/"
-  else
-    FRONTEND_INC="frontend/"
-  fi
-
-  tar czf "$DIST_DIR/${PKG_NAME}.tar.gz" \
-    --exclude='__pycache__'     --exclude='*.pyc'       --exclude='*.db' \
-    --exclude='.venv'           --exclude='.pytest_cache' --exclude='.vite' \
-    --exclude='node_modules'    --exclude='.git'         --exclude='./dist' \
-    --exclude='.env'            --exclude='package-lock.json' \
-    --exclude='*.egg-info'      --exclude='.vscode' \
-    --exclude='data/*.db'       --exclude='data/state_store.db' \
-    --exclude='赛题'            --exclude='TODO'          --exclude='skills-lock.json' \
-    --exclude='scripts/package.sh' \
-    --exclude='frontend/node_modules' \
-    --exclude='frontend/src'    --exclude='frontend/public' \
-    --exclude='frontend/index.html' --exclude='frontend/*.json' --exclude='frontend/*.ts' \
-    --transform="s,^,${PKG_NAME}/," \
-    backend/ "$FRONTEND_INC" docs/ scripts/ README.md LICENSE \
-    2>&1 | sed -u 's/^/  │ /'
-
-  SIZE=$(du -h "$DIST_DIR/${PKG_NAME}.tar.gz" | cut -f1)
-  FILES=$(tar tzf "$DIST_DIR/${PKG_NAME}.tar.gz" | wc -l)
-  VENDOR_TAR=$(tar tzf "$DIST_DIR/${PKG_NAME}.tar.gz" | grep -c 'vendor/.*\.whl' || echo 0)
-  log_ok "安装包: dist/${PKG_NAME}.tar.gz ($SIZE, $FILES 文件, 含 ${VENDOR_TAR} wheel)"
-fi
-
 # ── 完成 ──────────────────────────────────────────────────
 echo ""
-echo -e "  ${BOLD}${GREEN}✅ 部署完成${NC}"
-echo -e "  启动方式: bash scripts/start.sh"
+echo -e "  ${BOLD}${GREEN}╔════════════════════════════════════════╗${NC}"
+echo -e "  ${BOLD}${GREEN}║  ✅  SRE-agent v1.0.0 部署完成         ║${NC}"
+echo -e "  ${BOLD}${GREEN}╚════════════════════════════════════════╝${NC}"
+echo ""
+echo -e "  架构      : ${GREEN}$ARCH${NC}"
+echo -e "  Python    : ${GREEN}$($VENV_PYTHON --version 2>/dev/null)${NC}"
+echo -e "  虚拟环境  : ${GREEN}$VENV_DIR${NC}"
+echo -e "  LLM       : ${GREEN}$LLM_PROVIDER / $LLM_MODEL${NC}"
+echo -e "  前端      : ${GREEN}$FRONTEND_DIR/dist/${NC}"
+echo -e "  数据库    : ${GREEN}$BACKEND_DIR/data/${NC}"
+if [ "$IS_LOONGARCH" = true ]; then
+  echo -e "  Rust      : ${GREEN}$(rustc --version 2>/dev/null || echo 'N/A')${NC}"
+  _VENDOR_WHL=$(find "$VENDOR_DIR" -name "*.whl" 2>/dev/null | wc -l)
+  echo -e "  离线 wheel: ${GREEN}${_VENDOR_WHL} 个${NC}"
+fi
+echo ""
+echo -e "  启动: ${BOLD}bash scripts/start.sh${NC}"
 echo ""
