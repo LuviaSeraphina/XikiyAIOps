@@ -126,17 +126,17 @@ echo -e "  ${CYAN}[3/4]${NC} 前端预检..."
 
 cd "$FRONTEND_DIR"
 
-if [ ! -d "node_modules" ]; then
-  echo -e "  ${RED}[✗]${NC}     node_modules 不存在, 请先运行: bash scripts/deploy.sh"
-  exit 1
-fi
-echo -e "  ${GREEN}[✓]${NC}     前端依赖已安装"
-
-# 可选: 检查 dist 是否已有构建产物
+# 前端优先用预构建 dist/, 没有则退到 dev 模式(需 node_modules)
 if [ -f "dist/index.html" ]; then
-  echo -e "  ${GREEN}[✓]${NC}     前端构建产物已存在"
+  echo -e "  ${GREEN}[✓]${NC}     前端已预构建 (dist/ 就绪)"
+  FRONTEND_MODE="static"
+elif [ -d "node_modules" ]; then
+  echo -e "  ${GREEN}[✓]${NC}     前端依赖已安装 (dev 模式)"
+  FRONTEND_MODE="dev"
 else
-  echo -e "  ${YELLOW}[!]${NC}     前端未构建 (dev 模式仍可运行, 但建议 npm run build)"
+  echo -e "  ${RED}[✗]${NC}     前端不可用: 缺 dist/ 且缺 node_modules"
+  echo -e "  ${YELLOW}      请先运行: bash scripts/deploy.sh${NC}"
+  exit 1
 fi
 
 # ============================================================
@@ -146,7 +146,9 @@ echo -e "\n  ${CYAN}[4/4]${NC} 启动服务..."
 echo ""
 
 check_port_free "$BACKEND_PORT" "后端"
-check_port_free "$FRONTEND_PORT" "前端"
+if [ "$FRONTEND_MODE" != "static" ]; then
+  check_port_free "$FRONTEND_PORT" "前端"
+fi
 
 # 启动后端 (后台)
 cd "$BACKEND_DIR"
@@ -157,9 +159,14 @@ echo -e "  ${GREEN}[✓]${NC}     后端已启动 (PID: $PID_BACKEND, 端口: $B
 
 # 启动前端 (后台)
 cd "$FRONTEND_DIR"
-npm run dev 2>&1 | sed -u 's/^/  [frontend] /' &
-PID_FRONTEND=$!
-echo -e "  ${GREEN}[✓]${NC}     前端已启动 (PID: $PID_FRONTEND, 端口: $FRONTEND_PORT)"
+if [ "$FRONTEND_MODE" = "static" ]; then
+  #预构建模式: 后端 FastAPI 直接挂载 dist/, 前端无需独立进程
+  echo -e "  ${GREEN}[✓]${NC}     前端由后端托管 (dist/ → http://localhost:$BACKEND_PORT)"
+else
+  npm run dev 2>&1 | sed -u 's/^/  [frontend] /' &
+  PID_FRONTEND=$!
+  echo -e "  ${GREEN}[✓]${NC}     前端已启动 (dev 模式, PID: $PID_FRONTEND, 端口: $FRONTEND_PORT)"
+fi
 
 # ============================================================
 # 等待服务就绪
@@ -176,14 +183,16 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# 等前端启动
-for i in $(seq 1 20); do
-  if curl -s "http://localhost:$FRONTEND_PORT" &>/dev/null; then
-    echo -e "  ${GREEN}[✓]${NC}     前端就绪 (尝试 $i 次)"
-    break
-  fi
-  sleep 1
-done
+# 等前端启动 (仅 dev 模式)
+if [ "$FRONTEND_MODE" != "static" ]; then
+  for i in $(seq 1 20); do
+    if curl -s "http://localhost:$FRONTEND_PORT" &>/dev/null; then
+      echo -e "  ${GREEN}[✓]${NC}     前端就绪 (尝试 $i 次)"
+      break
+    fi
+    sleep 1
+  done
+fi
 
 # ============================================================
 # 输出访问信息
@@ -193,13 +202,21 @@ echo -e "  ${BOLD}${GREEN}══════════════════
 echo -e "  ${BOLD}${GREEN}  ✅ SRE-agent 已就绪${NC}"
 echo -e "  ${GREEN}════════════════════════════════════════════════════${NC}"
 echo ""
-echo -e "  前端页面: ${BOLD}http://localhost:$FRONTEND_PORT${NC}"
+if [ "$FRONTEND_MODE" = "static" ]; then
+  echo -e "  前端 + API: ${BOLD}http://localhost:$BACKEND_PORT${NC}"
+else
+  echo -e "  前端页面: ${BOLD}http://localhost:$FRONTEND_PORT${NC}"
+fi
 echo -e "  API 文档: ${BOLD}http://localhost:$BACKEND_PORT/docs${NC}"
 echo -e "  健康检查: ${BOLD}http://localhost:$BACKEND_PORT/health${NC}"
 echo ""
 echo -e "  ${YELLOW}按 Ctrl+C 停止所有服务${NC}"
 echo ""
 
-# 阻塞等待: 任一子进程退出则脚本退出
-wait -n "$PID_BACKEND" "$PID_FRONTEND" 2>/dev/null || true
+# 阻塞等待
+if [ -n "$PID_FRONTEND" ]; then
+  wait -n "$PID_BACKEND" "$PID_FRONTEND" 2>/dev/null || true
+else
+  wait "$PID_BACKEND" 2>/dev/null || true
+fi
 cleanup exit

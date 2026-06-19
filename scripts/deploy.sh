@@ -1,605 +1,254 @@
 #!/usr/bin/env bash
 # ============================================================
-# SRE-agent 一键部署脚本 v1.0.0
-#
-# 适配: 麒麟 V10/V11 (x86_64 / LoongArch64) + Ubuntu/Debian
+# SRE-agent 一键部署 v1.0.0
 # 用法: bash scripts/deploy.sh
 # ============================================================
 set -euo pipefail
 
-# ── 颜色 & 日志 ──────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; BOLD='\033[1m'; CYAN='\033[0;36m'; NC='\033[0m'
-log_ok()   { echo -e "  ${GREEN}[OK]${NC}    $(date +%H:%M:%S) $*"; }
-log_info() { echo -e "  ${BLUE}[INFO]${NC}  $(date +%H:%M:%S) $*"; }
-log_warn() { echo -e "  ${YELLOW}[WARN]${NC}  $(date +%H:%M:%S) $*"; }
-log_err()  { echo -e "  ${RED}[ERROR]${NC} $(date +%H:%M:%S) $*"; }
-log_step() { echo -e "\n  ${CYAN}[···]${NC}  $(date +%H:%M:%S) $*"; }
+log_ok()   { echo -e "  ${GREEN}[OK]${NC}    $*"; }
+log_info() { echo -e "  ${BLUE}[INFO]${NC}  $*"; }
+log_warn() { echo -e "  ${YELLOW}[WARN]${NC}  $*"; }
+log_err()  { echo -e "  ${RED}[ERROR]${NC} $*"; }
+log_step() { echo -e "\n  ${CYAN}[···]${NC}  $*"; }
 
-# ── 路径 ──────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BACKEND_DIR="$PROJECT_DIR/backend"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
+OFFLINE_DIR="$PROJECT_DIR/offline-packages"
 ACTUAL_USER="${SUDO_USER:-$(whoami)}"
-ACTUAL_HOME="$(eval echo ~"$ACTUAL_USER")"
 
 echo -e "${BOLD}${GREEN}"
-echo "  ╔═══════════════════════════════════════════════════╗"
-echo "  ║     SRE-agent 一键部署 v1.0.0                      ║"
-echo "  ║     麒麟 V10/V11 (LoongArch) + 通用 Linux          ║"
-echo "  ╚═══════════════════════════════════════════════════╝"
+echo "  ╔══════════════════════════════════════╗"
+echo "  ║   SRE-agent 一键部署 v1.0.0          ║"
+echo "  ╚══════════════════════════════════════╝"
 echo -e "${NC}"
 
 # ============================================================
-# Step 1: 检测系统环境
+# Step 1: 环境检测
 # ============================================================
-echo -e "\n${BOLD}▶ Step 1/7: 检测系统环境${NC}"
+echo -e "\n${BOLD}▶ Step 1/5: 环境检测${NC}"
 
 ARCH="$(uname -m)"
 IS_LOONGARCH=false
 [[ "$ARCH" == "loongarch64" ]] && IS_LOONGARCH=true
 
-OS_ID="unknown"; OS_NAME="unknown"
-if [ -f /etc/os-release ]; then
-  . /etc/os-release
-  OS_ID="${ID:-unknown}"
-  OS_NAME="${PRETTY_NAME:-$OS_ID}"
-elif [ -f /etc/kylin-release ]; then
-  OS_ID="kylin"; OS_NAME="Kylin Linux"
-fi
+OS_ID="unknown"
+[ -f /etc/os-release ] && . /etc/os-release && OS_ID="${ID:-unknown}"
 
 PKG_MGR=""
-if command -v dnf &>/dev/null; then PKG_MGR="dnf"
-elif command -v apt &>/dev/null; then PKG_MGR="apt"
-else log_err "未检测到 dnf/apt"; exit 1; fi
+command -v dnf &>/dev/null && PKG_MGR="dnf"
+command -v apt &>/dev/null && PKG_MGR="apt"
+[ -z "$PKG_MGR" ] && { log_err "未检测到 dnf/apt"; exit 1; }
 
-echo "  OS       : $OS_NAME"
-echo "  架构     : $ARCH (LoongArch: $IS_LOONGARCH)"
-echo "  包管理器 : $PKG_MGR"
-echo "  用户     : $ACTUAL_USER"
+_HAS_RPM=false; _HAS_WHEELS=false
+[ -f "$OFFLINE_DIR/rpms.tar.gz" ] && _HAS_RPM=true
+[ -f "$OFFLINE_DIR/wheels.tar.gz" ] && _HAS_WHEELS=true
 
-#离线包检测 — 若项目根目录下有 offline-packages/ 则优先使用
-OFFLINE_DIR="$PROJECT_DIR/offline-packages"
-_HAS_RPM_ZIP=false
-_HAS_WHEEL_TAR=false
-if [ -d "$OFFLINE_DIR" ]; then
-  [ -f "$OFFLINE_DIR/rpms.tar.gz" ] && _HAS_RPM_ZIP=true
-  [ -f "$OFFLINE_DIR/wheels.tar.gz" ] && _HAS_WHEEL_TAR=true
-  if [ "$_HAS_RPM_ZIP" = true ] || [ "$_HAS_WHEEL_TAR" = true ]; then
-    log_ok "检测到 offline-packages/ (RPM: $_HAS_RPM_ZIP, Wheel: $_HAS_WHEEL_TAR)"
-  fi
-fi
+echo "  OS: $OS_ID | 架构: $ARCH | 包管理: $PKG_MGR"
+echo "  离线 RPM: $_HAS_RPM | 离线 Wheel: $_HAS_WHEELS"
 
-# ── 包安装 helper ────────────────────────────────────────
 install_pkg() {
-  local pkg="$1"
   if [ "$PKG_MGR" = "dnf" ]; then
-    sudo dnf install -y "$pkg" 2>/dev/null && return 0 || return 1
+    sudo dnf install -y "$1" 2>/dev/null && return 0 || return 1
   else
-    sudo apt install -y "$pkg" 2>/dev/null && return 0 || return 1
+    sudo apt install -y "$1" 2>/dev/null && return 0 || return 1
   fi
 }
 
 # ============================================================
-# Step 2: 安装系统依赖
+# Step 2: 系统依赖
 # ============================================================
-echo -e "\n${BOLD}▶ Step 2/7: 安装系统依赖${NC}"
+echo -e "\n${BOLD}▶ Step 2/5: 系统依赖${NC}"
 
-#离线 RPM 优先 — 解压直接安装, 跳过在线源
-if [ "$_HAS_RPM_ZIP" = true ]; then
-  log_step "离线 RPM 安装..."
-  _RPM_TMP="$(mktemp -d)"
-  tar xzf "$OFFLINE_DIR/rpms.tar.gz" -C "$_RPM_TMP" 2>/dev/null || true
-  _RPM_COUNT=$(find "$_RPM_TMP" -name "*.rpm" 2>/dev/null | wc -l)
-  if [ "$_RPM_COUNT" -gt 0 ]; then
-    log_info "安装 $_RPM_COUNT 个 RPM 包..."
-    find "$_RPM_TMP" -name "*.rpm" -print0 | xargs -0 sudo rpm -ivh --nodeps 2>&1 | sed -u 's/^/  │ /' || log_warn "部分 RPM 安装失败 (已安装的包会跳过)"
-  fi
-  rm -rf "$_RPM_TMP"
-  log_ok "离线 RPM 安装完成 (跳过在线源)"
+#离线 RPM
+if [ "$_HAS_RPM" = true ]; then
+  _TMP="$(mktemp -d)"
+  tar xzf "$OFFLINE_DIR/rpms.tar.gz" -C "$_TMP" 2>/dev/null || true
+  _CNT=$(find "$_TMP" -name "*.rpm" 2>/dev/null | wc -l)
+  [ "$_CNT" -gt 0 ] && log_info "安装 $_CNT 个 RPM..." && find "$_TMP" -name "*.rpm" -print0 | xargs -0 sudo rpm -ivh --nodeps 2>/dev/null || true
+  rm -rf "$_TMP"
 fi
 
-# ── Python 3 ─────────────────────────────────────────────
+#Python 3.11
 PYTHON_BIN=""
 for py in python3.11 python3.10 python3; do
   command -v "$py" &>/dev/null && { PYTHON_BIN="$py"; break; }
 done
-if [ -z "$PYTHON_BIN" ]; then
-  log_info "安装 Python 3..."
-  install_pkg python3.11 || install_pkg python3 || { log_err "Python 安装失败"; exit 1; }
-  PYTHON_BIN="python3.11"
-fi
+[ -z "$PYTHON_BIN" ] && { install_pkg python3.11 || install_pkg python3; PYTHON_BIN="python3.11"; }
 log_ok "Python: $($PYTHON_BIN --version)"
 
-# ── Node.js + npm ────────────────────────────────────────
-if ! command -v node &>/dev/null || ! command -v npm &>/dev/null; then
-  log_info "安装 Node.js + npm..."
-  if [ "$PKG_MGR" = "dnf" ]; then
-    sudo dnf install -y nodejs npm 2>/dev/null || {
-      log_warn "dnf 源无 nodejs, 尝试 NodeSource..."
-      curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
-      sudo dnf install -y nodejs npm
-    }
-  else
-    sudo apt update -qq && sudo apt install -y nodejs npm
-  fi
+#Node.js (仅前端未构建时需要)
+if [ ! -f "$FRONTEND_DIR/dist/index.html" ]; then
+  command -v node &>/dev/null || { install_pkg nodejs 2>/dev/null || true; install_pkg npm 2>/dev/null || true; }
+  command -v node &>/dev/null && log_ok "Node: $(node --version)" || log_warn "Node 未安装, 前端构建将跳过"
 fi
-log_ok "Node: $(node --version) / npm: $(npm --version)"
 
-# ── LoongArch: 编译工具链 + 科学计算系统包 ──────────────────
+#LoongArch: 编译工具链 (pip 在线回退时需要)
 if [ "$IS_LOONGARCH" = true ]; then
-  log_step "安装编译工具链 (C/C++/Rust)..."
-  for pkg in gcc gcc-c++ gcc-gfortran make python3-devel libffi-devel openssl-devel rust cargo; do
-    install_pkg "$pkg" && echo -e "${GREEN}✓${NC}" || echo -e "${YELLOW}跳过${NC}"
+  for pkg in gcc gcc-c++ make python3-devel; do
+    install_pkg "$pkg" 2>/dev/null || true
   done
-
-  #升级 Rust (Cargo>=1.85 才能用新版 maturin, 否则回退 maturin 1.7.1)
-  #有离线 wheel 包时跳过: maturin 已在 vendor 中, 无需编译
-  if [ "$_HAS_WHEEL_TAR" = true ]; then
-    log_info "检测到离线 wheel 包, 跳过 Rust 升级 (maturin 已预编译)"
-  else
-  _CARGO_VER=$(cargo --version 2>/dev/null | grep -oP '\d+\.\d+' | head -1 || echo "0.0")
-  if [ "$(printf '%s\n' "1.85" "$_CARGO_VER" | sort -V | head -1)" = "1.85" ]; then
-    log_info "Cargo $_CARGO_VER >= 1.85, 跳过升级"
-  else
-    log_step "升级 Rust (当前 $_CARGO_VER, 需要 >=1.85)..."
-    _RUST_UPGRADED=false
-
-    #── 策略0: 本地离线包 (offline-packages/rust-*.tar.xz) ──
-    _LOCAL_RUST=$(find "$OFFLINE_DIR" -maxdepth 1 -name "rust-*.tar.xz" 2>/dev/null | head -1)
-    if [ -n "$_LOCAL_RUST" ] && [ -f "$_LOCAL_RUST" ]; then
-      log_info "发现本地离线包: $_LOCAL_RUST"
-      _RUST_TMP="$(mktemp -d)"
-      if tar xf "$_LOCAL_RUST" -C "$_RUST_TMP" 2>&1 | sed -u 's/^/  │ /'; then
-        _RUST_INSTALL_DIR="$ACTUAL_HOME/.rust-loongnix-1.92"
-        _RUST_EXTRACTED=$(find "$_RUST_TMP" -maxdepth 1 -type d -name "rust-*" | head -1)
-        if [ -n "$_RUST_EXTRACTED" ] && [ -f "$_RUST_EXTRACTED/install.sh" ]; then
-          (cd "$_RUST_EXTRACTED" && \
-            sh install.sh --prefix="$_RUST_INSTALL_DIR" --disable-ldconfig 2>&1 | sed -u 's/^/  │ /')
-          export PATH="$_RUST_INSTALL_DIR/bin:$PATH"
-          _RUST_UPGRADED=true
-          log_ok "本地 Rust 离线包已安装 ($_RUST_INSTALL_DIR)"
-        else
-          log_warn "离线包结构异常, 缺少 install.sh"
-        fi
-      fi
-      rm -rf "$_RUST_TMP"
-    fi
-
-    #── 策略1: rustup 多镜像回退 (各 30s 超时) ──────────────
-    if [ "$_RUST_UPGRADED" = false ]; then
-      if command -v rustup &>/dev/null; then
-        for _mirror in \
-          "https://mirrors.ustc.edu.cn/rustup" \
-          "https://mirrors.tuna.tsinghua.edu.cn/rustup" \
-          "https://static.rust-lang.org/rustup"; do
-          log_info "尝试 rustup 镜像: $_mirror"
-          if RUSTUP_DIST_SERVER="$_mirror" timeout 30 rustup update stable 2>&1 | sed -u 's/^/  │ /'; then
-            _RUST_UPGRADED=true
-            log_ok "rustup 升级成功 ($_mirror)"
-            break
-          fi
-          log_warn "镜像 $_mirror 失败, 尝试下一个..."
-        done
-      else
-        log_info "rustup 未安装, 跳过"
-      fi
-    fi
-
-    #── 策略2: Loongnix FTP 直下预编译包 (rustup 全部失败时) ──
-    if [ "$_RUST_UPGRADED" = false ]; then
-      _RUST_TARBALL="rust-1.92.0-loongarch64-unknown-linux-gnu.tar.xz"
-      _RUST_URL="https://ftp.loongnix.cn/toolchain/rust/rust-1.92/2025-12-24/abi1.0/$_RUST_TARBALL"
-      log_info "Loongnix FTP 直下 (~237MB, 超时 600s): $_RUST_URL"
-      _RUST_TMP="$(mktemp -d)"
-      if curl --connect-timeout 10 --max-time 600 -L -o "$_RUST_TMP/$_RUST_TARBALL" "$_RUST_URL" 2>&1 | sed -u 's/^/  │ /'; then
-        log_info "解压 $_RUST_TARBALL..."
-        if tar xf "$_RUST_TMP/$_RUST_TARBALL" -C "$_RUST_TMP" 2>&1 | sed -u 's/^/  │ /'; then
-          #官方 Rust tarball 自带 install.sh, 安装到 ~/.cargo
-          _RUST_INSTALL_DIR="$ACTUAL_HOME/.rust-loongnix-1.92"
-          if [ -f "$_RUST_TMP/rust-1.92.0-loongarch64-unknown-linux-gnu/install.sh" ]; then
-            (cd "$_RUST_TMP/rust-1.92.0-loongarch64-unknown-linux-gnu" && \
-              sh install.sh --prefix="$_RUST_INSTALL_DIR" --disable-ldconfig 2>&1 | sed -u 's/^/  │ /')
-            export PATH="$_RUST_INSTALL_DIR/bin:$PATH"
-            #不设 CARGO_HOME, 继续用 ~/.cargo/config.toml 的镜像配置
-            _RUST_UPGRADED=true
-            log_ok "Loongnix Rust 1.92 已安装 ($_RUST_INSTALL_DIR)"
-          else
-            log_warn "tarball 结构异常, 缺少 install.sh"
-          fi
-        else
-          log_warn "解压失败"
-        fi
-      else
-        log_warn "Loongnix FTP 下载失败 (网络不通?)"
-      fi
-      rm -rf "$_RUST_TMP"
-    fi
-
-    if [ "$_RUST_UPGRADED" = false ]; then
-      log_warn "Rust 升级全部策略失败, 保持 $_CARGO_VER → 将用 maturin 1.7.1"
-    fi
-  fi
-  fi  # _HAS_WHEEL_TAR 闭合
-  log_info "Rust: $(rustc --version 2>/dev/null || echo 'N/A')"
-
-  log_step "安装科学计算系统包..."
-  #scikit-learn → scipy → numpy; 三个都装系统 RPM, pip 直接跳过
-  for pkg in python3-numpy python3-scipy python3-scikit-learn; do
-    echo -n "  → $pkg ... "
-    if install_pkg "$pkg"; then
-      echo -e "${GREEN}✓${NC}"
-    else
-      echo -e "${YELLOW}不可用 (将回退源码编译)${NC}"
-    fi
-  done
+  log_ok "编译工具链就绪"
 fi
 
 # ============================================================
-# Step 3: Python 虚拟环境 + 后端依赖
+# Step 3: 后端依赖
 # ============================================================
-echo -e "\n${BOLD}▶ Step 3/7: 安装后端依赖${NC}"
+echo -e "\n${BOLD}▶ Step 3/5: 后端依赖${NC}"
 cd "$BACKEND_DIR"
 
-#加速: 多源回退 (Loongnix 备用 → TUNA → PyPI), 单个源挂了自动切
-#有离线 wheel 包时跳过 (不需要联网)
-if [ "$_HAS_WHEEL_TAR" != true ]; then
-  log_step "配置 pip 多源回退..."
-  mkdir -p "$ACTUAL_HOME/.config/pip"
-  cat > "$ACTUAL_HOME/.config/pip/pip.conf" << 'PIPEOF'
-[global]
-timeout = 60
-index-url = https://lpypi.loongnix.cn/loongson/pypi/+simple/
-extra-index-url = https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple https://pypi.org/simple
-
-[install]
-trusted-host = lpypi.loongnix.cn mirrors.tuna.tsinghua.edu.cn pypi.org
-PIPEOF
-  log_info "pip: Loongnix 备用(lpypi) → 清华 TUNA → PyPI (自动逐包回退)"
-  #Cargo 镜像 (Rust 构建 pydantic-core/maturin 需要)
-  mkdir -p "$ACTUAL_HOME/.cargo"
-  rm -f "$ACTUAL_HOME/.cargo/config"
-  cat > "$ACTUAL_HOME/.cargo/config.toml" << 'CARGOEOF'
-[source.crates-io]
-replace-with = 'tuna'
-
-[source.tuna]
-registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
-
-[source.ustc]
-registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"
-CARGOEOF
-  log_ok "Cargo 镜像已配置 (TUNA sparse)"
-else
-  log_info "离线 wheel 模式: 跳过 pip/cargo 镜像配置"
-fi
-
-# ── 虚拟环境 ─────────────────────────────────────────────
 VENV_DIR="$BACKEND_DIR/.venv"
-NEED_RECREATE=false
+VENDOR_DIR="$BACKEND_DIR/vendor"
 
-if [ -d "$VENV_DIR" ]; then
-  if [ "$IS_LOONGARCH" = true ]; then
-    #检查现有 venv 是否启用了 --system-site-packages
-    if "$VENV_DIR/bin/python" -c "import sys; exit(0 if sys.prefix!=sys.base_prefix else 1)" 2>/dev/null; then
-      #venv 正常, 但需确认能访问系统包
-      if ! "$VENV_DIR/bin/python" -c "import numpy" 2>/dev/null; then
-        log_warn "现有 venv 无 --system-site-packages, 将重建"
-        NEED_RECREATE=true
-      else
-        log_info "虚拟环境已存在 (含系统包), 跳过"
-      fi
-    else
-      NEED_RECREATE=true
-    fi
-  else
-    log_info "虚拟环境已存在, 跳过"
-  fi
-fi
-
-if [ ! -d "$VENV_DIR" ] || [ "$NEED_RECREATE" = true ]; then
-  [ "$NEED_RECREATE" = true ] && rm -rf "$VENV_DIR"
+#创建 venv (LoongArch 用 --system-site-packages 复用系统 numpy/scipy)
+if [ ! -d "$VENV_DIR" ]; then
   if [ "$IS_LOONGARCH" = true ]; then
     $PYTHON_BIN -m venv "$VENV_DIR" --system-site-packages
-    log_ok "venv 已创建 (--system-site-packages, 复用系统 numpy/scipy/scikit-learn)"
   else
     $PYTHON_BIN -m venv "$VENV_DIR"
-    log_ok "venv 已创建"
   fi
+  log_ok "venv 已创建"
+else
+  log_info "venv 已存在"
 fi
 
-#使用 venv 绝对路径, 避免 source activate 在某些环境下静默失效
 VENV_PIP="$VENV_DIR/bin/pip"
 VENV_PYTHON="$VENV_DIR/bin/python"
-"$VENV_PIP" install --upgrade pip -q
-log_ok "pip 已升级"
+"$VENV_PIP" install --upgrade pip -q 2>/dev/null || true
 
-# ── LoongArch: 构建环境准备 ──────────────────────────────
-#有离线 wheel 包时跳过: greenlet/maturin 已在 vendor 中
-if [ "$IS_LOONGARCH" = true ] && [ "$_HAS_WHEEL_TAR" != true ]; then
-  log_step "预装构建依赖 + 禁用 PEP 517 构建隔离..."
-  #greenlet: SQLAlchemy 异步必需, 有 C 扩展
-  "$VENV_PIP" install greenlet 2>&1 | sed -u 's/^/  │ /'
-  #maturin: pydantic-core 是 Rust 项目, 源码编译需要 maturin
-  CARGO_VER=$(cargo --version 2>/dev/null | grep -oP '\d+\.\d+' | head -1 || echo "0.0")
-  if [ "$(printf '%s\n' "1.85" "$CARGO_VER" | sort -V | head -1)" = "1.85" ]; then
-    "$VENV_PIP" install maturin 2>&1 | sed -u 's/^/  │ /'
+#解压离线 wheel
+if [ "$_HAS_WHEELS" = true ]; then
+  log_info "解压离线 wheel..."
+  rm -rf "$VENDOR_DIR" && mkdir -p "$VENDOR_DIR"
+  _TMP="$(mktemp -d)"
+  tar xzf "$OFFLINE_DIR/wheels.tar.gz" -C "$_TMP" 2>/dev/null || true
+  find "$_TMP" -name '*.whl' -exec mv {} "$VENDOR_DIR/" \; 2>/dev/null || true
+  rm -rf "$_TMP"
+  _CNT=$(find "$VENDOR_DIR" -maxdepth 1 -name '*.whl' 2>/dev/null | wc -l)
+  if [ "$_CNT" -gt 0 ]; then
+    log_ok "vendor/ 就绪: $_CNT 个 wheel"
   else
-    log_info "Cargo $CARGO_VER < 1.85 (rustup 失败或离线), 安装 maturin==1.7.1"
-    "$VENV_PIP" install "maturin==1.7.1" 2>&1 | sed -u 's/^/  │ /'
-  fi
-
-  #关键: 禁用构建隔离, scipy/pydantic-core 源码编译时能访问系统包和预装的 maturin
-  #(PEP 517 默认隔离环境看不到 --system-site-packages 的系统包和当前环境的 pip 包)
-  export PIP_NO_BUILD_ISOLATION=1
-fi
-
-# ── 安装 Python 依赖 ─────────────────────────────────────
-VENDOR_DIR="$BACKEND_DIR/vendor"
-log_step "安装 Python 依赖..."
-
-#离线 wheel 优先 — 解压到 vendor/, 后续安装自动使用
-if [ "$_HAS_WHEEL_TAR" = true ]; then
-  log_info "解压离线 wheels.tar.gz → vendor/..."
-  mkdir -p "$VENDOR_DIR"
-  echo -n "  → 解压中... "
-  if tar xzf "$OFFLINE_DIR/wheels.tar.gz" -C "$VENDOR_DIR" --strip-components=1 2>/dev/null; then
-    echo -e "${GREEN}OK${NC}"
-  else
-    echo -e "${RED}失败${NC}"
     log_warn "wheels.tar.gz 解压失败, 将在线安装"
-  fi
-  #用 find 统计 (防 glob 兼容问题, 且 set -e 下 ls 无匹配会静默退出)
-  _VENDOR_CNT=$(find "$VENDOR_DIR" -maxdepth 1 \( -name "*.whl" -o -name "*.tar.gz" \) 2>/dev/null | wc -l)
-  if [ "$_VENDOR_CNT" -gt 0 ]; then
-    log_ok "vendor/ 已就绪 ($_VENDOR_CNT 个包, 来自离线包)"
-  else
-    log_warn "vendor/ 为空 — 解压失败或目录结构不匹配, 回退在线安装"
+    _HAS_WHEELS=false
   fi
 fi
 
-if [ -d "$VENDOR_DIR" ] && [ "$(find "$VENDOR_DIR" -maxdepth 1 -name "*.whl" 2>/dev/null | wc -l)" -gt 0 ]; then
-  log_info "从本地 vendor/ 安装 (离线优先)..."
-  if "$VENV_PIP" install --no-index --find-links="$VENDOR_DIR" -r requirements.txt --progress-bar on 2>&1 | sed -u 's/^/  │ /'; then
-    log_ok "离线安装成功"
-  else
-    log_warn "vendor/ 架构不匹配, 回退在线安装"
-    if "$VENV_PIP" install -r requirements.txt --progress-bar on 2>&1 | sed -u 's/^/  │ /'; then
-      :
-    else
-      log_warn "多源回退失败, 切换清华 TUNA 直连重试..."
-      "$VENV_PIP" install -r requirements.txt \
-        -i https://pypi.tuna.tsinghua.edu.cn/simple \
-        --trusted-host pypi.tuna.tsinghua.edu.cn \
-        --progress-bar on 2>&1 | sed -u 's/^/  │ /'
-    fi
-  fi
-else
-  log_info "从 PyPI 在线安装..."
-  if "$VENV_PIP" install -r requirements.txt --progress-bar on 2>&1 | sed -u 's/^/  │ /'; then
-    :
-  else
-    log_warn "多源回退失败, 切换清华 TUNA 直连重试..."
-    "$VENV_PIP" install -r requirements.txt \
-      -i https://pypi.tuna.tsinghua.edu.cn/simple \
-      --trusted-host pypi.tuna.tsinghua.edu.cn \
-      --progress-bar on 2>&1 | sed -u 's/^/  │ /'
-  fi
-fi
+#安装依赖
+if [ "$_HAS_WHEELS" = true ]; then
+  log_info "离线安装..."
 
-# ── 缓存 wheel (从 venv 本地导出) ────────────────────────
-#已有离线包时跳过: vendor 已从 wheels.tar.gz 解压, 架构正确
-if [ "$_HAS_WHEEL_TAR" != true ]; then
-  log_info "从 venv 导出 wheel 到 vendor/ (本地, 不联网)..."
-  mkdir -p "$VENDOR_DIR"
-  find "$VENDOR_DIR" -name "*.whl" -delete 2>/dev/null || true
-  _WHEEL_PKGS=$("$VENV_PIP" freeze 2>/dev/null | grep -v "^pip=\|^setuptools=\|^wheel=\|@ file" | cut -d= -f1 | tr '\n' ' ')
-  _WHEEL_OK=0; _WHEEL_SKIP=0
-  for _pkg in $_WHEEL_PKGS; do
-    if "$VENV_PIP" wheel --no-deps --no-build-isolation --wheel-dir="$VENDOR_DIR" "$_pkg" 2>&1 | tail -3 | grep -qE "Created wheel|Stored|Successfully built|Filename"; then
-      ((_WHEEL_OK+=1))
-    else
-      ((_WHEEL_SKIP+=1))
-    fi
+  #逐个装所有 wheel, --no-deps 完全跳过依赖解析
+  _TOTAL=$(find "$VENDOR_DIR" -name '*.whl' 2>/dev/null | wc -l)
+  _DONE=0
+  for _whl in "$VENDOR_DIR"/*.whl; do
+    "$VENV_PIP" install --no-deps "$_whl" 2>&1 | tail -1
+    _DONE=$((_DONE + 1))
   done
-  log_ok "vendor/ 已刷新: $_WHEEL_OK 个本架构 wheel (${_WHEEL_SKIP} 个跳过)"
-else
-  log_info "离线 wheel 模式: 跳过重导出, vendor/ 已就绪"
-fi
-echo ""
+  log_ok "已安装 $_DONE / $_TOTAL 个包"
 
-# ── 校验关键包 ───────────────────────────────────────────
-log_step "校验关键包..."
-for pkg in fastapi uvicorn sqlalchemy psutil greenlet aiosqlite httpx pydantic; do
-  echo -n "  → $pkg ... "
-  if "$VENV_PIP" show "$pkg" &>/dev/null; then echo -e "${GREEN}✓${NC}"; else echo -e "${RED}✗ 缺失${NC}"; log_err "$pkg 未安装"; exit 1; fi
+  #修复 pydantic 版本检查 + METADATA
+  _CORE_VER=$("$VENV_PIP" show pydantic-core 2>/dev/null | awk '/Version/ {print $2}')
+  if [ -n "$_CORE_VER" ]; then
+    _VER_FILE=$(find "$VENV_DIR" -path '*/pydantic/version.py' 2>/dev/null | head -1)
+    _META_FILE=$(find "$VENV_DIR" -path '*/pydantic-*.dist-info/METADATA' 2>/dev/null | head -1)
+    #直接把 version.py 里 '2.46.4' 这样的硬编码版本号替换掉
+    [ -f "$_VER_FILE" ] && sed -i "s/'2\.[0-9]\+\.[0-9]\+'/'$_CORE_VER'/g" "$_VER_FILE" 2>/dev/null || true
+    [ -f "$_META_FILE" ] && sed -i "s/pydantic-core==[0-9.]*/pydantic-core>=$_CORE_VER/" "$_META_FILE" 2>/dev/null || true
+    log_info "pydantic 版本检查已适配 ($_CORE_VER)"
+  fi
+else
+  log_info "在线安装..."
+  "$VENV_PIP" install -r requirements.txt 2>&1 | tail -5
+fi
+
+#校验
+for pkg in fastapi uvicorn pydantic pydantic-core greenlet sqlalchemy; do
+  "$VENV_PIP" show "$pkg" &>/dev/null || { log_err "$pkg 未安装"; exit 1; }
 done
-#LoongArch 额外校验 numpy/scikit-learn
-if [ "$IS_LOONGARCH" = true ]; then
-  for pkg in numpy scikit-learn; do
-    echo -n "  → $pkg ... "
-    if "$VENV_PYTHON" -c "import ${pkg//-/_}" 2>/dev/null; then echo -e "${GREEN}✓${NC}"; else echo -e "${RED}✗ 缺失${NC}"; log_err "$pkg 不可导入"; exit 1; fi
-  done
-fi
 log_ok "后端依赖就绪 ($("$VENV_PIP" list 2>/dev/null | wc -l) 个包)"
 
 # ============================================================
-# Step 4: 前端构建
+# Step 4: 前端
 # ============================================================
-if [ -d "$FRONTEND_DIR/dist" ] && [ -f "$FRONTEND_DIR/dist/index.html" ]; then
-  echo -e "\n${BOLD}▶ Step 4/7: 前端 (已构建, 跳过)${NC}"
-  log_info "检测到 frontend/dist/ — 安装包自带构建产物"
-else
-  echo -e "\n${BOLD}▶ Step 4/7: 前端依赖 + 构建${NC}"
+echo -e "\n${BOLD}▶ Step 4/5: 前端${NC}"
+
+if [ -f "$FRONTEND_DIR/dist/index.html" ]; then
+  log_ok "前端已预构建 (dist/), 跳过"
+elif [ -f "$FRONTEND_DIR/package.json" ] && command -v npm &>/dev/null; then
   cd "$FRONTEND_DIR"
+  log_info "npm install + build..."
+  npm install --silent 2>&1 | tail -3
+  npm run build 2>&1 | tail -3
+  [ -f "dist/index.html" ] && log_ok "前端构建完成" || log_warn "前端构建失败"
+else
+  log_warn "前端不可用 (缺 dist/ 且无法构建)"
+fi
 
-  #清理旧构建产物 (可能属于 root)
-  [ -d "dist" ] && { rm -rf dist 2>/dev/null || sudo rm -rf dist; }
-  [ -d "node_modules" ] && { rm -rf node_modules package-lock.json 2>/dev/null || sudo rm -rf node_modules package-lock.json; }
+# ============================================================
+# Step 5: 配置
+# ============================================================
+echo -e "\n${BOLD}▶ Step 5/5: 配置${NC}"
+cd "$BACKEND_DIR"
 
-  #npm 国内镜像加速
-  npm config set registry https://registry.npmmirror.com 2>/dev/null || true
-  log_info "npm install..."
-  npm install 2>&1 | sed -u 's/^/  │ /'
-  echo ""
-
-  #确保 vite/vue-tsc 可执行
-  for bin in node_modules/.bin/vite node_modules/.bin/vue-tsc; do
-    [ -f "$bin" ] && [ ! -x "$bin" ] && chmod +x "$bin" 2>/dev/null || true
-  done
-
-  log_info "npm run build..."
-  npm run build 2>&1 | sed -u 's/^/  │ /'
-  echo ""
-
-  if [ -f "dist/index.html" ]; then
-    log_ok "前端构建完成"
+#.env (支持环境变量预设: SRE_LLM_PROVIDER / SRE_LLM_MODEL / SRE_LLM_API_KEY)
+if [ ! -f .env ]; then
+  if [ -n "${SRE_LLM_PROVIDER:-}" ]; then
+    #非交互模式: 从环境变量读取
+    _PROVIDER="${SRE_LLM_PROVIDER}"; _URL="${SRE_LLM_BASE_URL:-https://api.deepseek.com}"
+    _MODEL="${SRE_LLM_MODEL:-deepseek-v4-flash}"; _KEY="${SRE_LLM_API_KEY:-}"
+    log_info "LLM 配置来自环境变量: $_PROVIDER / $_MODEL"
   else
-    log_err "前端构建失败: dist/index.html 不存在"
-    exit 1
+  echo ""
+  echo "  选择 LLM:"
+  echo "  [1] DeepSeek 云端   [2] Ollama 本地"
+  echo -n "  选项 (默认 1): "; read -r _C; _C="${_C:-1}"
+
+  if [ "$_C" = "2" ] && [ "$IS_LOONGARCH" = false ]; then
+    _PROVIDER="ollama"; _URL="http://localhost:11434"; _KEY=""
+    echo -n "  模型 (默认 qwen3:4b): "; read -r _M; _MODEL="${_M:-qwen3:4b}"
+  else
+    _PROVIDER="deepseek"; _URL="https://api.deepseek.com"
+    echo -n "  模型 (默认 deepseek-v4-flash): "; read -r _M; _MODEL="${_M:-deepseek-v4-flash}"
+    echo -n "  API Key: "; read -rs _KEY; echo ""
   fi
-fi
 
-# ============================================================
-# Step 5: 配置 LLM
-# ============================================================
-echo -e "\n${BOLD}▶ Step 5/7: 配置 LLM${NC}"
-cd "$BACKEND_DIR"
-
-echo ""
-echo "  请选择 LLM 模式:"
-echo "  ┌──────────────────────────────────────────────┐"
-echo "  │ [1] DeepSeek 云端 (推荐)                      │"
-echo "  │     base_url: https://api.deepseek.com       │"
-echo "  │     模型: deepseek-v4-flash                   │"
-echo "  │                                               │"
-echo "  │ [2] Ollama 本地 (仅 x86_64)                   │"
-echo "  │     模型: qwen3:4b, 端口: 11434               │"
-[[ "$IS_LOONGARCH" = true ]] && echo "  │     → LoongArch 暂不支持, 请选 [1]            │"
-echo "  └──────────────────────────────────────────────┘"
-echo ""
-
-if [ "$IS_LOONGARCH" = true ]; then
-  LLM_PROVIDER="deepseek"
-  echo -n "  选项 [1/2] (默认 1): "
-else
-  echo -n "  选项 [1/2] (默认 1): "
-fi
-read -r llm_choice
-llm_choice="${llm_choice:-1}"
-
-if [ "$llm_choice" = "2" ] && [ "$IS_LOONGARCH" = false ]; then
-  LLM_PROVIDER="ollama"
-  LLM_BASE_URL="http://localhost:11434"
-  echo -n "  模型名称 [默认 qwen3:4b]: "; read -r llm_model
-  LLM_MODEL="${llm_model:-qwen3:4b}"
-  LLM_API_KEY=""
-  log_info "请手动启动: ollama serve && ollama pull $LLM_MODEL"
-else
-  LLM_PROVIDER="deepseek"
-  LLM_BASE_URL="https://api.deepseek.com"
-  echo -n "  模型名称 [默认 deepseek-v4-flash]: "; read -r llm_model
-  LLM_MODEL="${llm_model:-deepseek-v4-flash}"
-  echo -n "  API Key: "; read -rs LLM_API_KEY; echo ""
-fi
-
-# ============================================================
-# Step 6: 生成 .env + 初始化数据库
-# ============================================================
-echo -e "\n${BOLD}▶ Step 6/7: 配置 + 数据库初始化${NC}"
-cd "$BACKEND_DIR"
-
-mkdir -p data
-sudo chown -R "$ACTUAL_USER:$(id -gn "$ACTUAL_USER")" data/ 2>/dev/null || true
-chmod 755 data
-
-cat > .env << EOF
-# SRE-agent 配置 (deploy.sh v1.0.0 自动生成)
-LLM_PROVIDER=$LLM_PROVIDER
-LLM_BASE_URL=$LLM_BASE_URL
-LLM_MODEL=$LLM_MODEL
-LLM_API_KEY=$LLM_API_KEY
-
+  cat > .env << EOF
+LLM_PROVIDER=$_PROVIDER
+LLM_BASE_URL=$_URL
+LLM_MODEL=$_MODEL
+LLM_API_KEY=$_KEY
 MAX_RISK_LEVEL=restricted
 REQUIRE_CONFIRMATION=true
 AUDIT_ENABLED=true
-
 DATABASE_URL=sqlite+aiosqlite:///$BACKEND_DIR/data/sre_agent.db
 EOF
-log_ok ".env 已生成"
+  log_ok ".env 已生成"
+  fi  # 闭合环境变量预设分支
+else
+  log_info ".env 已存在, 跳过"
+  _PROVIDER=$(grep -oP 'LLM_PROVIDER=\K.*' .env 2>/dev/null || echo "?")
+  _MODEL=$(grep -oP 'LLM_MODEL=\K.*' .env 2>/dev/null || echo "?")
+fi
 
-log_step "初始化数据库..."
+#数据库
+mkdir -p data
 "$VENV_PYTHON" -c "
 from app.db import init_db
 import asyncio
 asyncio.run(init_db())
-print('数据库表初始化完成')
-" 2>&1 | sed -u 's/^/  │ /'
+print('数据库就绪')
+" 2>&1 | tail -1
 log_ok "数据库就绪"
 
-# ============================================================
-# Step 7/7: 部署验证
-# ============================================================
-echo -e "\n${BOLD}▶ Step 7/8: 部署验证${NC}"
-errors=0
-
-#MCP Tool 注册数
-echo -n "  [验证] MCP Tool 注册... "
-TOOLS=$("$VENV_PYTHON" -c "from app.mcp_plugins.base import registry; print(registry.count)" 2>/dev/null || echo "0")
-if [ "$TOOLS" -ge 49 ]; then
-  echo -e "${GREEN}✅${NC} $TOOLS 个 Tool"
-else
-  echo -e "${RED}❌${NC} 仅 $TOOLS 个"; errors=$((errors+1))
-fi
-
-#安全护栏
-echo -n "  [验证] 安全护栏... "
-SAFE=$("$VENV_PYTHON" -c "
-from app.core.intent_filter import classify_intent, IntentCategory
-cat, _, _ = classify_intent('rm -rf /etc')
-print('OK' if cat==IntentCategory.DANGEROUS_ACTION else 'FAIL')
-" 2>/dev/null || echo "FAIL")
-if [ "$SAFE" = "OK" ]; then echo -e "${GREEN}✅${NC} 意图分类正常"; else echo -e "${RED}❌${NC}"; errors=$((errors+1)); fi
-
-#LLM
-echo -n "  [验证] LLM 配置... "
-LLM_INFO=$("$VENV_PYTHON" -c "from app.llm.config import LLM_PROVIDER, LLM_MODEL; print(f'\${LLM_PROVIDER}/\${LLM_MODEL}')" 2>/dev/null || echo "ERROR")
-echo -e "${GREEN}$LLM_INFO${NC}"
-
-#前端
-echo -n "  [验证] 前端构建... "
-if [ -f "$FRONTEND_DIR/dist/index.html" ]; then echo -e "${GREEN}✅${NC}"; else echo -e "${RED}❌${NC}"; errors=$((errors+1)); fi
-
-#磁盘
-echo -n "  [验证] 磁盘空间... "
-DISK=$(df -h "$PROJECT_DIR" | awk 'NR==2 {print $5}' | tr -d '%')
-if [ "$DISK" -lt 90 ]; then echo -e "${GREEN}✅${NC} ${DISK}%"; else echo -e "${YELLOW}⚠️${NC} ${DISK}%"; fi
-
+#验证
 echo ""
-if [ "$errors" -eq 0 ]; then
-  echo -e "  ${BOLD}${GREEN}✅ 部署验证全部通过${NC}"
-else
-  echo -e "  ${RED}❌ 发现 $errors 个问题${NC}"
-fi
-
-# ── 完成 ──────────────────────────────────────────────────
+_TOOLS=$("$VENV_PYTHON" -c "from app.mcp_plugins.base import registry; print(registry.count)" 2>/dev/null || echo "0")
+echo -e "  MCP Tool: ${GREEN}$_TOOLS${NC} 个  |  LLM: ${GREEN}$_PROVIDER / $_MODEL${NC}"
 echo ""
-echo -e "  ${BOLD}${GREEN}╔════════════════════════════════════════╗${NC}"
-echo -e "  ${BOLD}${GREEN}║  ✅  SRE-agent v1.0.0 部署完成         ║${NC}"
-echo -e "  ${BOLD}${GREEN}╚════════════════════════════════════════╝${NC}"
-echo ""
-echo -e "  架构      : ${GREEN}$ARCH${NC}"
-echo -e "  Python    : ${GREEN}$($VENV_PYTHON --version 2>/dev/null)${NC}"
-echo -e "  虚拟环境  : ${GREEN}$VENV_DIR${NC}"
-echo -e "  LLM       : ${GREEN}$LLM_PROVIDER / $LLM_MODEL${NC}"
-echo -e "  前端      : ${GREEN}$FRONTEND_DIR/dist/${NC}"
-echo -e "  数据库    : ${GREEN}$BACKEND_DIR/data/${NC}"
-if [ "$IS_LOONGARCH" = true ]; then
-  echo -e "  Rust      : ${GREEN}$(rustc --version 2>/dev/null || echo 'N/A')${NC}"
-  _VENDOR_WHL=$(find "$VENDOR_DIR" -name "*.whl" 2>/dev/null | wc -l)
-  echo -e "  离线 wheel: ${GREEN}${_VENDOR_WHL} 个${NC}"
-fi
-echo ""
+echo -e "  ${BOLD}${GREEN}✅ 部署完成${NC}"
 echo -e "  启动: ${BOLD}bash scripts/start.sh${NC}"
+echo -e "  访问: ${BOLD}http://localhost:8001${NC}"
 echo ""

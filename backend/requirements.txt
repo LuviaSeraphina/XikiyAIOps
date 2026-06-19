@@ -29,7 +29,7 @@ greenlet>=3.5
 
 # ── 数据校验 ──
 pydantic>=2.13
-pydantic-core>=2.46
+pydantic-core>=2.46.4
 pydantic-settings>=2.14
 annotated-types>=0.7
 annotated-doc>=0.0.4
