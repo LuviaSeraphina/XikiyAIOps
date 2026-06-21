@@ -11,7 +11,7 @@ SSE 响应格式 (标准 OpenAI):
 tool_calls 在 delta 中增量累积:
     data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"...","function":{"name":"cpu_get","arguments":""}}]}}]}
     data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"seconds\""}}]}}]}
-    ... (逐 token 返回 arguments JSON 片段, 需要手动拼接)
+    ... (逐 token 返回 arguments JSON 片段)
 
 用法:
     from app.llm.providers.openai_compat import OpenAICompatProvider
@@ -48,7 +48,7 @@ class OpenAICompatProvider(BaseLLMProvider):
 
         OpenAI API 要求:
           - assistant.tool_calls[].function.arguments: JSON 字符串 (非 dict)
-          - tool.tool_call_id: 必须匹配对应 tool_call 的 id（一一对应，不重复）
+          - tool.tool_call_id: 必须匹配对应 tool_call 的 id(一一对应,不重复)
         """
         normalized = []
         used_tool_call_ids: set = set()  # 防止多 tool 并发时重复匹配同一个 id
@@ -118,7 +118,7 @@ class OpenAICompatProvider(BaseLLMProvider):
                         logger.error(
                             "LLM API HTTP %s: %s", resp.status_code, detail or error_body[:200]
                         )
-                        # 按状态码细分 reason，前端可据此展示不同的用户提示
+                        # 按状态码细分 reason, 前端可据此展示不同的用户提示
                         if resp.status_code == 401:
                             reason = "auth_error"
                         elif resp.status_code == 429:

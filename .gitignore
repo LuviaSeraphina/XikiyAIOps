@@ -20,3 +20,4 @@ backend/vendor/
 temp/
 offline-packages/
 build-loongarch-wheels.sh
+build-loongarch-ollama.sh
