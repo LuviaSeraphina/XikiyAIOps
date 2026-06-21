@@ -91,32 +91,6 @@ else
   exit 1
 fi
 
-#自动启动 Ollama (若使用 Ollama Provider)
-if [ "$LLM_PROVIDER" = "ollama" ]; then
-  _OLLAMA_BIN=""
-  for _p in "$BACKEND_DIR/ollama-loongarch64" "$PROJECT_DIR/ollama-loongarch64" "$PROJECT_DIR/offline-packages/ollama-loongarch64" "$PROJECT_DIR/ollama"; do
-    [ -f "$_p" ] && { chmod +x "$_p"; _OLLAMA_BIN="$_p"; break; }
-  done
-  command -v ollama &>/dev/null && _OLLAMA_BIN="ollama"
-  if [ -n "$_OLLAMA_BIN" ]; then
-    #检查端口
-    _PORT_FREE=true
-    if command -v ss &>/dev/null; then
-      ss -ltnp "( sport = :11434 )" 2>/dev/null | grep -q . && _PORT_FREE=false
-    fi
-    if [ "$_PORT_FREE" = false ]; then
-      echo "        Ollama: 已在运行 (端口 11434)"
-    else
-      echo "        Ollama: 启动 $_OLLAMA_BIN serve ..."
-      nohup "$_OLLAMA_BIN" serve &>/dev/null &
-      sleep 2
-      echo "        Ollama: 已启动"
-    fi
-  else
-    echo "        Ollama: 未找到二进制, 跳过"
-  fi
-fi
-
 # ============================================================
 # 2. 后端预检
 # ============================================================

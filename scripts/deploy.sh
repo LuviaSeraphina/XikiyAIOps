@@ -202,84 +202,12 @@ if [ ! -f .env ]; then
     _MODEL="${SRE_LLM_MODEL:-deepseek-v4-flash}"; _KEY="${SRE_LLM_API_KEY:-}"
     log_info "LLM 配置来自环境变量: $_PROVIDER / $_MODEL"
   else
-  #检测本地 Ollama 二进制
-  _OLLAMA_BIN=""
-  for _p in "$BACKEND_DIR/ollama-loongarch64" "$PROJECT_DIR/ollama-loongarch64" "$OFFLINE_DIR/ollama-loongarch64"; do
-    [ -f "$_p" ] && { chmod +x "$_p"; _OLLAMA_BIN="$_p"; break; }
-  done
-  command -v ollama &>/dev/null && _OLLAMA_BIN="ollama"
-
-  echo ""
-  echo "  选择 LLM:"
-  if [ -n "$_OLLAMA_BIN" ]; then
-    echo "  [1] Ollama 本地 (默认, $(basename $_OLLAMA_BIN))"
-    echo "  [2] DeepSeek 云端"
-    echo -n "  选项 (默认 1): "; read -r _C; _C="${_C:-1}"
-  else
-    _PROVIDER="deepseek"; _URL="https://api.deepseek.com"
-    echo "  LLM: DeepSeek 云端"
-    echo -n "  模型 (默认 deepseek-v4-flash): "; read -r _M; _MODEL="${_M:-deepseek-v4-flash}"
-    echo -n "  API Key: "; read -rs _KEY; echo ""
-    _C="skip"
-  fi
-
-  if [ "$_C" = "2" ]; then
+    #交互模式: 默认 DeepSeek 云端
+    echo ""
+    echo "  配置 LLM (默认 DeepSeek 云端):"
     _PROVIDER="deepseek"; _URL="https://api.deepseek.com"
     echo -n "  模型 (默认 deepseek-v4-flash): "; read -r _M; _MODEL="${_M:-deepseek-v4-flash}"
     echo -n "  API Key: "; read -rs _KEY; echo ""
-  elif [ "$_C" = "1" ]; then
-    #默认 / 选 Ollama
-    _PROVIDER="ollama"; _URL="http://localhost:11434"; _KEY=""
-    echo -n "  模型 (默认 qwen3:4b): "; read -r _M; _MODEL="${_M:-qwen3:4b}"
-    if [ -n "$_OLLAMA_BIN" ]; then
-      #创建 ollama 软链接到项目根目录
-      ln -sf "$_OLLAMA_BIN" "$PROJECT_DIR/ollama" 2>/dev/null || true
-
-      #离线模型: 检测并解压到 ~/
-      if [ -f "$OFFLINE_DIR/ollama-models.tar.gz" ]; then
-        log_info "发现离线模型包, 正在导入..."
-        tar xzf "$OFFLINE_DIR/ollama-models.tar.gz" -C ~/ 2>/dev/null && log_ok "离线模型已导入" || log_warn "模型包解压失败"
-      fi
-
-      log_info "启动 Ollama 服务..."
-      nohup "$_OLLAMA_BIN" serve &>/dev/null &
-      sleep 3
-
-      #先检查模型是否已存在
-      if "$_OLLAMA_BIN" list 2>/dev/null | grep -q "$_MODEL"; then
-        log_ok "模型 $_MODEL 已存在, 跳过拉取"
-      else
-        echo ""
-        echo -e "  ${BOLD}>>> 正在拉取模型 $_MODEL (最多重试3次)...${NC}"
-        _PULL_OK=false
-        for _i in 1 2 3; do
-          echo -n "    尝试 $_i/3... "
-          if "$_OLLAMA_BIN" pull "$_MODEL"; then
-            _PULL_OK=true; break
-          fi
-          [ $_i -lt 3 ] && { echo "失败, 5秒后重试..."; sleep 5; }
-        done
-        if [ "$_PULL_OK" = true ]; then
-          log_ok "模型 $_MODEL 拉取成功"
-        else
-          log_warn "模型拉取失败, 请手动: $_OLLAMA_BIN pull $_MODEL"
-        fi
-      fi
-
-      #验证模型是否就绪
-      _RETRY=0
-      while [ $_RETRY -lt 5 ]; do
-        if "$_OLLAMA_BIN" list 2>/dev/null | grep -q "$_MODEL"; then
-          log_ok "Ollama 就绪 ($_MODEL)"
-          break
-        fi
-        sleep 2
-        _RETRY=$((_RETRY + 1))
-      done
-      if [ $_RETRY -ge 5 ]; then
-        log_warn "模型 $_MODEL 未就绪, 请确认已拉取: $_OLLAMA_BIN pull $_MODEL"
-      fi
-    fi
   fi
 
   cat > .env << EOF
@@ -293,57 +221,10 @@ AUDIT_ENABLED=true
 DATABASE_URL=sqlite+aiosqlite:///$BACKEND_DIR/data/sre_agent.db
 EOF
   log_ok ".env 已生成"
-  fi  # 闭合环境变量预设分支
 else
   log_info ".env 已存在, 跳过配置"
   _PROVIDER=$(grep -oP 'LLM_PROVIDER=\K.*' .env 2>/dev/null || echo "?")
   _MODEL=$(grep -oP 'LLM_MODEL=\K.*' .env 2>/dev/null || echo "?")
-fi
-
-#.env 已存在且为 Ollama 时, 仍需启动服务 + 检查模型
-if [ "$_PROVIDER" = "ollama" ] && [ -f .env ]; then
-  _OLLAMA_BIN=""
-  for _p in "$BACKEND_DIR/ollama-loongarch64" "$PROJECT_DIR/ollama-loongarch64" "$OFFLINE_DIR/ollama-loongarch64"; do
-    [ -f "$_p" ] && { chmod +x "$_p"; _OLLAMA_BIN="$_p"; break; }
-  done
-  command -v ollama &>/dev/null && _OLLAMA_BIN="ollama"
-  if [ -n "$_OLLAMA_BIN" ]; then
-    ln -sf "$_OLLAMA_BIN" "$PROJECT_DIR/ollama" 2>/dev/null || true
-
-    #离线模型: 检测并解压到 ~/
-    if [ -f "$OFFLINE_DIR/ollama-models.tar.gz" ]; then
-      log_info "发现离线模型包, 正在导入..."
-      tar xzf "$OFFLINE_DIR/ollama-models.tar.gz" -C ~/ 2>/dev/null && log_ok "离线模型已导入" || log_warn "模型包解压失败"
-    fi
-
-    #检查端口, 未运行则启动
-    _NEED_START=true
-    command -v ss &>/dev/null && ss -ltnp "( sport = :11434 )" 2>/dev/null | grep -q . && _NEED_START=false
-    if [ "$_NEED_START" = true ]; then
-      log_info "启动 Ollama 服务..."
-      nohup "$_OLLAMA_BIN" serve &>/dev/null &
-      sleep 3
-    fi
-    #检查模型
-    if "$_OLLAMA_BIN" list 2>/dev/null | grep -q "$_MODEL"; then
-      log_ok "Ollama 就绪 ($_MODEL)"
-    else
-      echo -e "  ${BOLD}>>> 正在拉取模型 $_MODEL (最多重试3次)...${NC}"
-      _PULL_OK=false
-      for _i in 1 2 3; do
-        echo -n "    尝试 $_i/3... "
-        if "$_OLLAMA_BIN" pull "$_MODEL"; then
-          _PULL_OK=true; break
-        fi
-        [ $_i -lt 3 ] && { echo "失败, 5秒后重试..."; sleep 5; }
-      done
-      if [ "$_PULL_OK" = true ]; then
-        log_ok "模型 $_MODEL 拉取成功"
-      else
-        log_warn "模型拉取失败, 请手动: $_OLLAMA_BIN pull $_MODEL"
-      fi
-    fi
-  fi
 fi
 
 #数据库
