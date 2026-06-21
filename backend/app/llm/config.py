@@ -9,12 +9,12 @@ logger = logging.getLogger("sre_agent.llm")
 _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
 load_dotenv(_env_path)
 
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://localhost:11434")
-LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-flash")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-REQUEST_TIMEOUT = 120
-MAX_TOOL_ROUNDS = 5
+LLM_PROVIDER=os.getenv("LLM_PROVIDER", "ollama")
+LLM_BASE_URL=os.getenv("LLM_BASE_URL", "http://localhost:11434")
+LLM_MODEL=os.getenv("LLM_MODEL", "deepseek-v4-flash")
+LLM_API_KEY=os.getenv("LLM_API_KEY", "")
+REQUEST_TIMEOUT=600 if LLM_PROVIDER == "ollama" else 120
+MAX_TOOL_ROUNDS=5
 
 if LLM_PROVIDER != "ollama" and not LLM_API_KEY:
     logger.warning(
