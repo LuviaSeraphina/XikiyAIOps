@@ -54,7 +54,6 @@ class OllamaProvider(BaseLLMProvider):
                         if msg.get("content"):
                             yield {"type": "token", "content": msg["content"]}
                         if msg.get("tool_calls"):
-                            # 规范化 arguments (浅拷贝避免原地修改原始响应)
                             for tc in msg["tool_calls"]:
                                 fn = tc.get("function", {})
                                 tc["function"] = {
