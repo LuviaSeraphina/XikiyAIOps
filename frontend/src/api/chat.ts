@@ -24,16 +24,23 @@ export function sendMessage(message: string, sessionId: string): Promise<Respons
 
 /**
  * POST /api/chat/confirm — 确认危险操作
- * 当前版本只记录确认，不会恢复已中断的执行流
+ * decisions 为 {tool_call_id: boolean} 映射, 标记每个工具放行/跳过;
+ * 不传或传空对象则全部取消。
  */
-export async function confirmAction(sessionId: string): Promise<{ success: boolean; message: string }> {
+export async function confirmAction(
+  sessionId: string,
+  decisions?: Record<string, boolean>,
+): Promise<{ success: boolean; message: string }> {
   const res = await fetch(BASE_URL + '/chat/confirm', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, confirmed: true }),
+    body: JSON.stringify({ session_id: sessionId, decisions: decisions ?? {} }),
   })
-  if (!res.ok) throw new Error(`确认失败: HTTP ${res.status}`)
-  return res.json() as Promise<{ success: boolean; message: string }>
+  const json = await res.json()
+  if (!res.ok) {
+    throw new Error(json?.message || `确认失败: HTTP ${res.status}`)
+  }
+  return json as { success: boolean; message: string }
 }
 
 // ====== 对话历史 ======

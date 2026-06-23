@@ -35,6 +35,8 @@ export type SSEEventType =
   | 'tool_result'
   | 'security_check'
   | 'rca_analysis'
+  | 'awaiting_confirmation'
+  | 'tool_skipped'
   | 'done'
   | 'error'
 
@@ -260,11 +262,16 @@ export interface SSEErrorData {
 
 // ========== 确认操作 ==========
 
-export interface PendingConfirm {
+export interface PendingToolItem {
+  tool_call_id: string
   tool_name: string
   summary: string
   details: string
   risk_level: RiskLevel
+}
+
+export interface PendingConfirm {
+  tools: PendingToolItem[]
 }
 
 // ========== 仪表盘辅助类型 ==========

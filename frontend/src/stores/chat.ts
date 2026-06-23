@@ -5,14 +5,15 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { ChatMessage, PendingConfirm, RiskLevel, ToolCallStatus, Conversation } from '../types'
-import { sendMessage as apiSendMessage, fetchConversations, fetchConversationDetail } from '../api/chat'
+import type { ChatMessage, PendingToolItem, RiskLevel, ToolCallStatus, Conversation } from '../types'
+import { sendMessage as apiSendMessage, fetchConversations, fetchConversationDetail, confirmAction } from '../api/chat'
 
 export const useChatStore = defineStore('chat', () => {
   // ====== 状态 ======
   const messages = ref<ChatMessage[]>([])
   const streaming = ref(false)
-  const pendingConfirm = ref<PendingConfirm | null>(null)
+  const pendingTools = ref<PendingToolItem[]>([])
+  const isAwaitingConfirm = ref(false)
   const currentSessionId = ref<string>(crypto.randomUUID())
 
   // 历史
@@ -75,12 +76,19 @@ export const useChatStore = defineStore('chat', () => {
       }
 
       case 'security_check':
-        pendingConfirm.value = {
+        // 收集待确认工具到列表, 不弹窗 (awaiting_confirmation 事件触发弹窗)
+        pendingTools.value.push({
+          tool_call_id: (data.tool_call_id as string) || '',
           tool_name: (data.tool_name as string) || '',
           summary: (data.summary as string) || '',
           details: (data.details as string) || '',
-          risk_level: (data.risk_level as RiskLevel) || 'restricted',
-        }
+          risk_level: (data.risk_level as RiskLevel) || 'read_only',
+        })
+        break
+
+      case 'awaiting_confirmation':
+        // 所有 security_check 已收集, generator 在等待
+        isAwaitingConfirm.value = true
         break
 
       case 'rca_analysis':
@@ -93,6 +101,10 @@ export const useChatStore = defineStore('chat', () => {
         if (data.alerts && (data.alerts as string[]).length > 0) {
           agentMsg.content += '\n⚠️ 告警: ' + (data.alerts as string[]).join('; ')
         }
+        break
+
+      case 'tool_skipped':
+        agentMsg.content += `\n⏭️ 已跳过: ${(data.tool_name as string) || ''}（${(data.reason as string) || ''}）`
         break
 
       case 'error':
@@ -130,7 +142,8 @@ export const useChatStore = defineStore('chat', () => {
 
     // 3. 发起 SSE 请求
     streaming.value = true
-    pendingConfirm.value = null
+    pendingTools.value = []
+    isAwaitingConfirm.value = false
 
     try {
       const response = await apiSendMessage(text, currentSessionId.value)
@@ -183,28 +196,54 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // ====== 确认操作 ======
+  // ====== 确认操作（多工具） ======
+  /** 关闭确认框（取消）— 全部取消 */
   function clearPendingConfirm() {
-    pendingConfirm.value = null
+    if (pendingTools.value.length > 0) {
+      cancelAllTools()
+    }
   }
 
+  /** 用户点击取消按钮 — 全部取消 */
   function cancelPendingConfirm() {
-    if (pendingConfirm.value) {
-      // 追加系统消息记录取消
-      messages.value.push({
-        id: crypto.randomUUID(),
-        role: 'system',
-        content: `⚠️ 已取消操作: ${pendingConfirm.value.tool_name}`,
-        timestamp: new Date().toISOString(),
-      })
+    if (pendingTools.value.length > 0) {
+      cancelAllTools()
     }
-    pendingConfirm.value = null
+  }
+
+  /**
+   * 提交用户决策 — 通知后端哪些工具放行/跳过
+   * decisions 为 {tool_call_id: boolean} 映射
+   */
+  async function submitDecisions(decisions: Record<string, boolean>) {
+    isAwaitingConfirm.value = false
+    pendingTools.value = []
+    try {
+      await confirmAction(currentSessionId.value, decisions)
+    } catch (e) {
+      console.error('提交确认失败:', e)
+    }
+  }
+
+  /** 内部: 通知后端全部取消 + 追加系统消息 */
+  function cancelAllTools() {
+    const toolNames = pendingTools.value.map(t => t.tool_name).join(', ')
+    isAwaitingConfirm.value = false
+    pendingTools.value = []
+    confirmAction(currentSessionId.value).catch(() => {})
+    messages.value.push({
+      id: crypto.randomUUID(),
+      role: 'system',
+      content: `⚠️ 已取消操作: ${toolNames}`,
+      timestamp: new Date().toISOString(),
+    })
   }
 
   // ====== 会话管理 ======
   function newSession() {
     messages.value = []
-    pendingConfirm.value = null
+    pendingTools.value = []
+    isAwaitingConfirm.value = false
     lastHealthScore.value = null
     currentSessionId.value = crypto.randomUUID()
   }
@@ -243,13 +282,15 @@ export const useChatStore = defineStore('chat', () => {
   return {
     messages,
     streaming,
-    pendingConfirm,
+    pendingTools,
+    isAwaitingConfirm,
     currentSessionId,
     conversations,
     historyLoading,
     lastHealthScore,
     lastAgentId,
     sendMessage,
+    submitDecisions,
     clearPendingConfirm,
     cancelPendingConfirm,
     newSession,

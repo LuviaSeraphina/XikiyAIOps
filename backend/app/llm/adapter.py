@@ -16,6 +16,9 @@ LLM Provider 切换: 通过 .env 中 LLM_PROVIDER 配置, 支持 ollama / deepse
 依赖: registry (MCP), intent_filter + injection_detector (安全), providers (LLM)
 调用方: api/chat.py 通过 POST /api/chat/send → SSE StreamingResponse
 """
+import asyncio
+import json
+from app.services.confirm_state import PENDING_CONFIRMS, CONFIRM_RESULTS
 from app.mcp_plugins.base import registry
 from app.core.platform_detect import _get_platform_info as get_platform_info
 from app.core.intent_filter import classify_intent, IntentCategory
@@ -25,7 +28,6 @@ from app.llm.tools import get_tools
 from app.llm.providers import get_llm_provider
 from app.llm.utils import normalize_arguments
 from app.core.rca_analyzer import compute_health_score
-import json
 
 # 缓存: platform info 在进程生命周期内不变, 只构建一次
 _cached_platform=None
@@ -68,6 +70,7 @@ def build_system_prompt():
 2. 禁止生成 shell 命令 — 绝对不要输出 rm、chmod、iptables 等命令文本
 3. 危险操作需确认 — restricted 和 dangerous 工具会触发用户二次确认
 4. 绝不绕过安全护栏 — 不尝试编码、混淆或拼接绕过检测
+5. 如果某个工具返回 {"skipped": true}，表示该操作被用户取消。正常继续后续分析，不要重复请求被取消的工具。注意区分 skipped（用户主动取消）和 error（执行出错）。
 
 回答要求:
 - 用中文回复
@@ -200,7 +203,7 @@ def _extract_metrics(tool_results):
 """
 方法: chat_stream(), 主入口 — 安全检测 + LLM 流式对话 + Tool 调用循环 + RCA 分析
 """
-async def chat_stream(user_input, history=None):
+async def chat_stream(user_input, history=None, session_id=""):
     # 1. 安全前置
     allowed, reason, _=check_user_input(user_input)
     if not allowed:
@@ -262,15 +265,113 @@ async def chat_stream(user_input, history=None):
             "tool_calls": tool_calls_in_round,
         })
 
-        # 执行工具, yield SSE 事件, 追加 tool 消息
-        round_results=[]
+        # Pass A: 收集待确认工具 (restricted/dangerous) vs 安全工具 (read_only)
+        pending_tool_calls=[]
+        safe_tool_calls=[]
+
         for tc in tool_calls_in_round:
+            fn=tc.get("function", {})
+            tool_name=fn.get("name", "")
+            arguments=normalize_arguments(fn.get("arguments", {}))
+            tool_obj=registry.get_tool(tool_name)
+            if tool_obj is None:
+                # 工具不存在 — 立即返回 error, 不走确认流程
+                tool_msg, events=_process_tool_call(tc)
+                for evt in events:
+                    yield evt
+                messages.append(tool_msg)
+                continue
+            risk_level=tool_obj.risk_level.value
+            if risk_level in ("restricted", "dangerous"):
+                # 提前 yield tool_call + security_check, 但不执行
+                yield {"event": "tool_call", "data": {
+                    "tool_name": tool_name, "arguments": arguments, "risk_level": risk_level,
+                }}
+                yield {"event": "security_check", "data": {
+                    "tool_name": tool_name,
+                    "summary": "即将执行: {}".format(tool_name),
+                    "details": json.dumps(arguments, ensure_ascii=False),
+                    "risk_level": risk_level,
+                    "tool_call_id": tc.get("id", ""),
+                }}
+                pending_tool_calls.append(tc)
+            else:
+                safe_tool_calls.append(tc)
+
+        # 等待用户确认 (如有待确认工具)
+        confirmed_decisions={}
+        if pending_tool_calls and session_id:
+            yield {"event": "awaiting_confirmation", "data": {
+                "session_id": session_id,
+                "tool_names": [tc["function"]["name"] for tc in pending_tool_calls],
+            }}
+            confirm_event=asyncio.Event()
+            PENDING_CONFIRMS[session_id]=confirm_event
+            try:
+                await asyncio.wait_for(confirm_event.wait(), timeout=300)
+            except asyncio.TimeoutError:
+                # 超时 — 全部标记为未确认, 走 skipped 路径
+                for tc in pending_tool_calls:
+                    skipped={"tool": tc["function"]["name"], "skipped": True, "reason": "确认超时"}
+                    tool_msg={"role": "tool", "content": json.dumps(skipped, ensure_ascii=False)}
+                    if tc.get("id"):
+                        tool_msg["tool_call_id"]=tc["id"]
+                    messages.append(tool_msg)
+                    yield {"event": "tool_skipped", "data": {
+                        "tool_name": tc["function"]["name"], "reason": "确认超时",
+                    }}
+                yield {"event": "error", "data": {"message": "操作确认超时"}}
+                return
+            finally:
+                confirmed_decisions=CONFIRM_RESULTS.pop(session_id, {})
+                PENDING_CONFIRMS.pop(session_id, None)
+        elif pending_tool_calls and not session_id:
+            # 无 session_id 无法等待 — 跳过所有待确认工具
+            for tc in pending_tool_calls:
+                skipped={"tool": tc["function"]["name"], "skipped": True, "reason": "无 session_id"}
+                tool_msg={"role": "tool", "content": json.dumps(skipped, ensure_ascii=False)}
+                if tc.get("id"):
+                    tool_msg["tool_call_id"]=tc["id"]
+                messages.append(tool_msg)
+                yield {"event": "tool_skipped", "data": {
+                    "tool_name": tc["function"]["name"], "reason": "无 session_id",
+                }}
+
+        # Pass B: 执行已确认的工具 + 安全工具, 收集结果用于 RCA
+        round_results=[]
+        # 安全工具: 走完整 _process_tool_call
+        for tc in safe_tool_calls:
             tool_msg, events=_process_tool_call(tc)
             for evt in events:
                 yield evt
-                #收集 tool_result 数据用于 RCA
                 if evt["event"]=="tool_result":
                     round_results.append(evt.get("data", {}).get("result", {}))
+            messages.append(tool_msg)
+
+        # 已确认的 pending 工具: 跳过 tool_call + security_check (Pass A 已发), 只执行 + tool_result
+        for tc in pending_tool_calls:
+            tc_id=tc.get("id", "")
+            tool_name=tc["function"]["name"]
+            if not confirmed_decisions.get(tc_id, False):
+                skipped={"tool": tool_name, "skipped": True, "reason": "用户未确认"}
+                tool_msg={"role": "tool", "content": json.dumps(skipped, ensure_ascii=False)}
+                if tc_id:
+                    tool_msg["tool_call_id"]=tc_id
+                messages.append(tool_msg)
+                yield {"event": "tool_skipped", "data": {"tool_name": tool_name, "reason": "用户未确认"}}
+                continue
+            # 用户已确认, 直接执行 (不走 _process_tool_call, 避免重复 yield tool_call/security_check)
+            arguments=normalize_arguments(tc["function"].get("arguments", {}))
+            result=execute_tool(tool_name, arguments)
+            status="error" if result.get("risk_level") in ("error", "blocked") else "done"
+            yield {"event": "tool_result", "data": {
+                "tool_name": tool_name, "result": result, "status": status,
+            }}
+            if status=="done":
+                round_results.append(result)
+            tool_msg={"role": "tool", "content": json.dumps(result, ensure_ascii=False)}
+            if tc_id:
+                tool_msg["tool_call_id"]=tc_id
             messages.append(tool_msg)
 
         #RCA 分析: 采集到系统指标后计算健康评分

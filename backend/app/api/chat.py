@@ -15,6 +15,7 @@ from sqlalchemy import select
 from app.db import get_db, async_session
 from app.llm.adapter import chat_stream
 from app.models import Conversation
+from app.services.confirm_state import PENDING_CONFIRMS, CONFIRM_RESULTS
 from app.services.causal_chain import fmt_summary, classify_anomaly, build_causal_chain
 from app.services.audit_writer import save_conversation, save_audit_logs_batch
 from datetime import datetime
@@ -30,6 +31,14 @@ async def chat_send(request: Request):
     session_id=body.get("session_id","")
     history=body.get("history",None)
 
+    #会话冲突检查: 如果该 session 正在等待确认, 拒绝新请求
+    if session_id and session_id in PENDING_CONFIRMS:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=409,
+            content={"code":409,"data":None,"message":"上一个操作正在等待确认, 请先处理确认框"},
+        )
+
     #收集流事件用于事后写入审计日志
     collected_events=[]
 
@@ -38,7 +47,7 @@ async def chat_send(request: Request):
         #阶段 1: 接收指令
         stage_input_event={"raw_input":user_input,"timestamp":datetime.now().isoformat(),"user":"anonymous"}
 
-        async for event in chat_stream(user_input, history):
+        async for event in chat_stream(user_input, history, session_id=session_id):
             if await request.is_disconnected():
                 break
 
@@ -72,20 +81,37 @@ async def chat_send(request: Request):
 
 @router.post("/confirm")
 async def chat_confirm(request: Request):
-    """危险操作确认回调
+    """危险操作确认回调 — v2: 接收 decisions dict, 唤醒等待中的 SSE generator
 
-    当前版本只负责记录确认结果, 不会恢复或继续已中断的工具执行。
-    前端可以据此展示已确认状态, 但不能把它当成恢复执行的信号。
+    请求体:
+    {
+        "session_id": "...",
+        "decisions": {     #可选, 缺失=全部取消
+            "tool_call_id_1": true,
+            "tool_call_id_2": false
+        }
+    }
+
+    通过 asyncio.Event 唤醒 chat_stream() 中等待的 generator,
+    decisions 决定哪些工具放行、哪些跳过。
     """
     body=await request.json()
     session_id=body.get("session_id","")
-    confirmed=body.get("confirmed",False)
+    decisions=body.get("decisions",None)
     if not session_id:
         return {"success":False,"message":"缺少 session_id"}
-    if not confirmed:
-        return {"success":False,"message":"操作已取消"}
-    print(f"[chat] 确认已记录: session_id={session_id}")
-    return {"success":True,"message":"确认已记录，当前版本不会恢复执行"}
+
+    event=PENDING_CONFIRMS.get(session_id)
+    if not event:
+        return {"success":False,"message":"该会话没有等待中的确认, 可能已超时"}
+
+    if decisions is None:
+        #全部取消
+        CONFIRM_RESULTS[session_id]={}
+    else:
+        CONFIRM_RESULTS[session_id]=decisions
+    event.set()
+    return {"success":True,"message":"确认已记录, 继续执行"}
 
 
 @router.get("/history")
@@ -211,6 +237,19 @@ async def _persist_chat(session_id,user_input,events,tools_called,stage_input_ev
                     "risk_level":edata.get("risk_level",""),
                 })
 
+            elif etype=="tool_skipped":
+                tool_executions.append({
+                    "tool_name":edata.get("tool_name",""),
+                    "status":"skipped",
+                    "is_anomaly":False,
+                    "exit_code":-1,
+                    "output_summary":edata.get("reason","用户未确认"),
+                    "detail_keys":[],
+                    "stdout":"",
+                    "stderr":"",
+                    "duration_ms":0,
+                })
+
             elif etype=="error":
                 assistant_content+=f"\n\n❌ {edata.get('message','')}"
 
@@ -283,6 +322,7 @@ async def _persist_chat(session_id,user_input,events,tools_called,stage_input_ev
             audit_items=[]
             for te in tool_executions:
                 tool_name=te["tool_name"]
+                is_skipped=te.get("status")=="skipped"
                 is_anomaly=te["is_anomaly"]
                 anomaly_type="tool_error" if is_anomaly else "none"
 
@@ -291,6 +331,32 @@ async def _persist_chat(session_id,user_input,events,tools_called,stage_input_ev
                     "tools_called":[tool_name],
                     "snapshot_summary":f"调用工具: {tool_name}",
                 }
+
+                if is_skipped:
+                    tool_validation={
+                        "rules_hit":[],
+                        "risk_score":0,
+                        "decision":"user_cancelled",
+                        "reason":"用户未确认: {}".format(te.get("output_summary","")),
+                    }
+                    tool_exec={
+                        "action_taken":f"跳过 {tool_name}",
+                        "tool_executions":[te],
+                        "is_anomaly":False,
+                        "anomaly_type":"none",
+                        "duration_ms":0,
+                    }
+                    tool_exec["causal_chain"]=build_causal_chain(
+                        stage_input_event, tool_perception, shared_reasoning,
+                        tool_validation, tool_exec,
+                    )
+                    stages=[stage_input_event, tool_perception, shared_reasoning, tool_validation, tool_exec]
+                    audit_items.append({
+                        "stages":stages,
+                        "is_anomaly":False,
+                        "anomaly_type":"none",
+                    })
+                    continue
 
                 #阶段 4: 安全校验 (提取该 tool 相关的 security_check)
                 tool_rules=[r for r in security_rules if r.get("tool_name")==tool_name]
