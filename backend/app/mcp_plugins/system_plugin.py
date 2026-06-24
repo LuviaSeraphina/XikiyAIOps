@@ -4,6 +4,7 @@ MCP 系统健康感知
 v2: 集成 KYSDK 原生硬件检测 (CPU/BIOS/系统版本), 非麒麟回落 psutil + shell
 """
 import os
+import re
 import platform
 import psutil
 from datetime import datetime
@@ -14,6 +15,7 @@ from app.mcp_plugins._common import(
     make_response as _make_response,
     error_response as _error_response,
     _kysdk_import,
+    journalctl_available,
 )
 
 
@@ -464,3 +466,116 @@ def system_bios_info():
         )
     except Exception as e:
         return _error_response("system_bios_info", e)
+
+
+# ── 日志查询工具 (v0.3) ──────────────────────────────
+
+# 日志行格式: 2024-06-15T10:30:00+0800 hostname program[pid]: message
+_JOURNAL_LINE_RE=re.compile(
+    r"^(\S+)\s+(\S+)\s+(\S+?)(?:\[(\d+)\])?:\s*(.*)$"
+)
+
+
+def _parse_journal_entries(lines, keyword=""):
+    """解析 journalctl -o short-iso 输出行, 可选关键词过滤"""
+    entries=[]
+    for line in lines:
+        if not line.strip():
+            continue
+        m=_JOURNAL_LINE_RE.match(line)
+        if not m:
+            continue
+        msg=m.group(5)
+        if keyword and keyword.lower() not in msg.lower():
+            continue
+
+        entries.append({
+            "timestamp": m.group(1),
+            "hostname": m.group(2),
+            "service": m.group(3),
+            "pid": m.group(4) or "",
+            "message": msg[:200],
+        })
+    return entries
+
+
+"""
+方法: system_journal_query(), 日志查询 — 按服务/时间/级别/关键词过滤
+
+v0.3 新增: 补上感知层的最大缺口, 支持 LLM 应答"查一下系统日志"。
+底层 journalctl, 支持 KYSDK AuditLog 集成预留。
+"""
+def system_journal_query(service="", hours=1, priority="err", keyword="", max_lines=50):
+    try:
+        if not journalctl_available():
+            return _error_response("system_journal_query", "journalctl 不可用")
+
+        max_lines=max(1, min(max_lines, 200))
+        cmd=["journalctl", "--no-pager", "-o", "short-iso", "-p", priority,
+             "--since", "{}h ago".format(hours)]
+        if service:
+            cmd.extend(["-u", service])
+        cmd.extend(["-n", str(max_lines)])
+
+        result=_run_command(cmd, timeout=15)
+        if not _cmd_ok(result):
+            return _error_response("system_journal_query", "journalctl 执行失败")
+        output=result["stdout"]
+        if not output:
+            return _make_response("system_journal_query",
+                data={"entries":[], "total":0},
+                summary={"total":0, "filter":{"priority":priority,"hours":hours,"service":service or "all"}},
+            )
+
+        entries=_parse_journal_entries(output.split("\n"), keyword)
+
+        return _make_response("system_journal_query",
+            data={
+                "entries": entries[:max_lines],
+                "total": len(entries),
+                "filter": {"service": service or "all", "hours": hours, "priority": priority, "keyword": keyword or ""},
+            },
+            summary={
+                "total": min(len(entries), max_lines),
+                "total_matched": len(entries),
+                "service": service or "all",
+                "priority": priority,
+                "hours": hours,
+            },
+        )
+    except Exception as e:
+        return _error_response("system_journal_query", e)
+
+
+"""
+方法: system_journal_tail(), 实时日志快照 — 最新 N 条日志
+
+与 query 的区别: 不按时间范围过滤, 直接取最新 N 条。
+适合 LLM 快速应答"现在系统在报什么"。
+"""
+def system_journal_tail(lines=20, priority="err"):
+    try:
+        if not journalctl_available():
+            return _error_response("system_journal_tail", "journalctl 不可用")
+
+        n=max(1, min(lines, 100))
+        cmd=["journalctl", "--no-pager", "-o", "short-iso", "-p", priority, "-n", str(n)]
+
+        result=_run_command(cmd, timeout=10)
+        if not _cmd_ok(result):
+            return _error_response("system_journal_tail", "journalctl 执行失败")
+        output=result["stdout"]
+        if not output:
+            return _make_response("system_journal_tail",
+                data={"entries":[], "lines_requested":n},
+                summary={"total":0, "priority":priority, "lines":n},
+            )
+
+        entries=_parse_journal_entries(output.split("\n"))
+
+        return _make_response("system_journal_tail",
+            data={"entries":entries, "priority":priority, "lines_requested":n},
+            summary={"total":len(entries), "priority":priority, "lines":n},
+        )
+    except Exception as e:
+        return _error_response("system_journal_tail", e)

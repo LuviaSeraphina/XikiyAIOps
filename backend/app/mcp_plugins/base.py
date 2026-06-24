@@ -401,6 +401,27 @@ def _auto_register_all(reg):
         risk_level=RiskLevel.READ_ONLY,
     ))
 
+    #---- 日志查询工具 (v0.3) ----
+    reg.register(MCPTool(
+        name="system_journal_query",
+        description="日志查询 — 按服务/时间/级别/关键词过滤 (journalctl)",
+        handler=_safe_import("app.mcp_plugins.system_plugin", "system_journal_query"),
+        risk_level=RiskLevel.READ_ONLY,
+        parameters={
+            "service": {"type": "string", "default": "", "description": "按 systemd 单元过滤, 如 sshd"},  # noqa: E501
+            "hours": {"type": "integer", "default": 1, "minimum": 1, "maximum": 168, "description": "回溯小时数"},  # noqa: E501
+            "priority": {"type": "string", "default": "err", "enum": ["emerg", "alert", "crit", "err", "warning", "notice", "info", "debug"], "description": "最低优先级"},  # noqa: E501
+            "keyword": {"type": "string", "default": "", "description": "消息内容关键词过滤"},  # noqa: E501
+            "max_lines": {"type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "返回条目上限"},  # noqa: E501
+        },
+    ))
+    reg.register(MCPTool(
+        name="system_journal_tail",
+        description='最新日志快照 — 快速查看系统当前日志, 适合回答「现在系统在报什么」',
+        handler=_safe_import("app.mcp_plugins.system_plugin", "system_journal_tail"),
+        risk_level=RiskLevel.READ_ONLY,
+    ))
+
     #---- 容器感知 (v0.2) ----
     reg.register(MCPTool(
         name="container_list",

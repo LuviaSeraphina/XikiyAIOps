@@ -123,7 +123,7 @@ def execute_tool(tool_name, arguments):
 """
 方法: _process_tool_call(), 对单个 LLM tool call 构建 SSE 事件 + 执行, 返回 (tool_msg, events)
 """
-def _process_tool_call(tc):
+def _process_tool_call(tc, skip_prefix=False):
     fn=tc.get("function", {})
     tool_name=fn.get("name", "")
     arguments=normalize_arguments(fn.get("arguments", {}))
@@ -140,19 +140,20 @@ def _process_tool_call(tc):
 
     events=[]
 
-    # SSE: tool_call
-    events.append({"event": "tool_call", "data": {
-        "tool_name": tool_name, "arguments": arguments, "risk_level": risk_level,
-    }})
-
-    # SSE: security_check (如需要)
-    if risk_level in ("restricted", "dangerous"):
-        events.append({"event": "security_check", "data": {
-            "tool_name": tool_name,
-            "summary": "即将执行: {}".format(tool_name),
-            "details": json.dumps(arguments, ensure_ascii=False),
-            "risk_level": risk_level,
+    if not skip_prefix:
+        # SSE: tool_call
+        events.append({"event": "tool_call", "data": {
+            "tool_name": tool_name, "arguments": arguments, "risk_level": risk_level,
         }})
+
+        # SSE: security_check (如需要)
+        if risk_level in ("restricted", "dangerous"):
+            events.append({"event": "security_check", "data": {
+                "tool_name": tool_name,
+                "summary": "即将执行: {}".format(tool_name),
+                "details": json.dumps(arguments, ensure_ascii=False),
+                "risk_level": risk_level,
+            }})
 
     # 执行工具
     result=execute_tool(tool_name, arguments)
@@ -343,7 +344,7 @@ async def chat_stream(user_input, history=None, session_id=""):
                     round_results.append(evt.get("data", {}).get("result", {}))
             messages.append(tool_msg)
 
-        # 已确认的 pending 工具: 跳过 tool_call + security_check (Pass A 已发), 只执行 + tool_result
+        # 已确认的 pending 工具: Pass A 已发前缀事件, 这里走 _process_tool_call(skip_prefix=True) 只执行 + tool_result
         for tc in pending_tool_calls:
             tc_id=tc.get("id", "")
             tool_name=tc["function"]["name"]
@@ -355,18 +356,11 @@ async def chat_stream(user_input, history=None, session_id=""):
                 messages.append(tool_msg)
                 yield {"event": "tool_skipped", "data": {"tool_name": tool_name, "reason": "用户未确认"}}
                 continue
-            # 用户已确认, 直接执行 (不走 _process_tool_call, 避免重复 yield tool_call/security_check)
-            arguments=normalize_arguments(tc["function"].get("arguments", {}))
-            result=execute_tool(tool_name, arguments)
-            status="error" if result.get("risk_level") in ("error", "blocked") else "done"
-            yield {"event": "tool_result", "data": {
-                "tool_name": tool_name, "result": result, "status": status,
-            }}
-            if status=="done":
-                round_results.append(result)
-            tool_msg={"role": "tool", "content": json.dumps(result, ensure_ascii=False)}
-            if tc_id:
-                tool_msg["tool_call_id"]=tc_id
+            tool_msg, events=_process_tool_call(tc, skip_prefix=True)
+            for evt in events:
+                yield evt
+                if evt["event"]=="tool_result":
+                    round_results.append(evt.get("data", {}).get("result", {}))
             messages.append(tool_msg)
 
         #RCA 分析: 采集到系统指标后计算健康评分
