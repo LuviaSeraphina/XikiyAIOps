@@ -30,7 +30,7 @@
       <div v-if="message.content" class="msg-content" v-html="renderedContent" />
 
       <!-- 流式光标 -->
-      <span v-if="isStreaming && message.content" class="cursor" />
+      <span v-if="streaming && message.role === 'assistant' && message.content" class="cursor" />
 
       <!-- 工具卡片 -->
       <div v-if="message.tool_calls?.length" class="msg-tools">
