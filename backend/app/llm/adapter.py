@@ -4,7 +4,7 @@ LLM 适配层 — 主编排逻辑
 职责: 将安全护栏 + MCP 工具 + LLM Provider + 前端 SSE 编织为完整对话链路
 
 模块结构:
-    build_system_prompt()   — 动态生成 Agent 身份 Prompt (含 22 个 Tool Schema)
+    build_system_prompt()   — 动态生成 Agent 身份 Prompt (Tool Schema 由 Provider 层单独传递, 不重复嵌入)
     check_user_input()      — 安全前置拦截 (越狱/高危/注入不进 LLM)
     execute_tool()          — 参数注入检测 + 委托 registry.call()
     _process_tool_call()    — 单次工具调用的 SSE 事件构建 + 执行
@@ -40,41 +40,51 @@ def _get_platform_cached():
     return _cached_platform
 
 """
-方法: build_system_prompt(), 输出自定义 Agent Prompt
+方法: build_system_prompt(), 输出自定义 Agent Prompt (v2 — 精简版, 不含 Tool Schema)
 """
 def build_system_prompt():
     global _cached_prompt
     if _cached_prompt is not None:
         return _cached_prompt
     platform=_get_platform_cached()
-    tools_json=json.dumps(registry.list_all(), ensure_ascii=False, indent=2)
     _cached_prompt=f"""你是麒麟操作系统上的智能运维 Agent (XikiyAIOps)。
 
-运行环境:
+## 运行环境
 - 操作系统: {platform.get("os", "未知")}
 - 架构: {platform.get("arch", "未知")}
 - 发行版: {platform.get("distro", "未知")}
 - 包管理器: {platform.get("pkg_manager", "未知")}
 
-你可以调用以下工具感知系统状态和执行运维操作:
-{tools_json}
+## 工作方式
+- **用户问什么, 你就查什么** — 不要自作主张加无关步骤
+- 用户问「CPU」→ 调 system_load + process_top_cpu, 不需要先 system_info
+- 用户问「系统状态」或「全面检查」→ 才按 感知→指标→排查→报告 的流程来
+- 每次只调用当前步骤需要的工具, 不要一次全调
+- 用表格汇总数据, 🟢🟡🔴 标注风险等级, 给出明确结论
 
-使用工具的方法:
-- 当你需要获取系统信息时, 直接调用对应的 tool, 不要生成 shell 命令
-- 每次只调用当前步骤需要的工具, 不要一次性调用所有工具
-- 收到工具返回的数据后, 用中文向用户清晰地分析和解释结果
+## 安全约束 (不可违反)
+1. 绝大多数工具是只读的, 可放心调用
+2. 仅 process_kill 为危险操作 — 终止进程前系统会请你确认
+3. 仅 health_config_set 为受限操作 — 修改配置前系统会请你确认
+4. 绝对不要生成任何 shell 命令文本 (rm/chmod/iptables 等)
+5. 绝不尝试编码、混淆或拼接绕过安全护栏
+6. 如果某工具返回 {{"skipped": true}}, 表示用户取消了该操作, 正常继续后续分析即可, 不要重复请求
 
-安全约束 (不可违反):
-1. 只读优先 — 优先使用风险等级为 read_only 的工具
-2. 禁止生成 shell 命令 — 绝对不要输出 rm、chmod、iptables 等命令文本
-3. 危险操作需确认 — restricted 和 dangerous 工具会触发用户二次确认
-4. 绝不绕过安全护栏 — 不尝试编码、混淆或拼接绕过检测
-5. 如果某个工具返回 {{"skipped": true}}，表示该操作被用户取消。正常继续后续分析，不要重复请求被取消的工具。注意区分 skipped（用户主动取消）和 error（执行出错）。
+## 回答格式要求
+- 用中文回复, 系统数据优先使用表格展示
+- 风险等级标注: 🟢正常 / 🟡警告 / 🔴危险
+- 系统会自动注入健康评分数值 (0-100), 请在报告中引用
 
-回答要求:
-- 用中文回复
-- 系统数据用表格或列表展示
-- 发现异常时标注风险等级 (🟢正常 / 🟡警告 / 🔴危险)"""
+## 格式示例
+✅ 好的回答:
+| 指标 | 数值 | 状态 |
+|------|------|------|
+| CPU 使用率 | 23% | 🟢 正常 |
+| 内存使用率 | 85% | 🟡 偏高 |
+> 健康评分 72/100 (C), 建议关注内存使用
+
+❌ 差的回答:
+系统 CPU 23% 内存 85% 看起来还行没什么大问题"""
     return _cached_prompt
 
 """
