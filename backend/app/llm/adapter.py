@@ -69,7 +69,7 @@ def build_system_prompt():
 2. 禁止生成 shell 命令 — 绝对不要输出 rm、chmod、iptables 等命令文本
 3. 危险操作需确认 — restricted 和 dangerous 工具会触发用户二次确认
 4. 绝不绕过安全护栏 — 不尝试编码、混淆或拼接绕过检测
-5. 如果某个工具返回 {"skipped": true}，表示该操作被用户取消。正常继续后续分析，不要重复请求被取消的工具。注意区分 skipped（用户主动取消）和 error（执行出错）。
+5. 如果某个工具返回 {{"skipped": true}}，表示该操作被用户取消。正常继续后续分析，不要重复请求被取消的工具。注意区分 skipped（用户主动取消）和 error（执行出错）。
 
 回答要求:
 - 用中文回复
