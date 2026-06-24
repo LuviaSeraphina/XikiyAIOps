@@ -24,3 +24,4 @@ build-loongarch-ollama.sh
 .codegraph/
 config/
 TODO/
+.playwright-mcp/
