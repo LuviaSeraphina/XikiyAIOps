@@ -14,7 +14,7 @@
 | 亮点 | 说明 |
 |------|------|
 | 🔒 多层安全护栏 | 4 层意图过滤 + 7 层注入检测 + 3 级权限代理，全链路防护 |
-| 🔧 45 个 MCP Tool | 进程/网络/磁盘/内存/安全/系统/容器/健康配置，8 大类全覆盖 |
+| 🔧 51 个 MCP Tool | 进程/网络/磁盘/内存/安全/系统/容器/健康配置，8 大类全覆盖 |
 | 🖥️ 麒麟 OS 适配 | 自动检测 dnf/nftables/龙芯架构，兼容通用 Linux |
 | 🧠 多 LLM 支持 | Ollama (qwen3) / DeepSeek / Qwen / OpenAI，工厂模式切换 |
 | 🎨 Vue 3 前端 | 对话/仪表盘/审计日志三页面，SSE 流式输出 |
@@ -28,18 +28,18 @@
 用户 (Web UI) ──→ FastAPI ──→ registry.call() ──→ MCP Tool 执行
                       │               │
                  ┌────┴────┐    ┌─────┴──────┐
-                 │ 安全护栏 │    │ 45 Tools   │
+                 │ 安全护栏 │    │ 51 Tools   │
                  │ intent   │    │ process(7) │
                  │ injection│    │ disk(5)    │
                  │ permission│   │ network(6) │
                  └─────────┘    │ memory(5)  │
-                                │ security(11)│
-                                │ system(7)  │
+                                │ security(13)│
+                                │ system(10) │
                                 │ container(3)│
                                 │ health(2)  │
                                 └───────────┘
                       │
-                 LLM (Ollama / DeepSeek / Qwen3)
+                 LLM (DeepSeek / Qwen)
 ```
 
 ---
@@ -47,7 +47,7 @@
 ## 快速启动
 
 ```bash
-# 一键部署 (推荐)
+# 一键部署 (自动适配 x86_64 / LoongArch)
 bash scripts/deploy.sh
 
 # 部署后启动前后端
@@ -58,7 +58,7 @@ bash scripts/start.sh
 |------|------|------|
 | 后端 API | `http://localhost:8001/health` | MCP Tool 调用 + 安全护栏 |
 | Swagger | `http://localhost:8001/docs` | API 文档 |
-| 前端 | `http://localhost:5173` | 对话/仪表盘/审计 |
+| 前端 | `http://localhost:8001` | 对话/仪表盘/审计 (dev: `http://localhost:5173`) |
 
 ---
 
@@ -76,7 +76,7 @@ bash scripts/start.sh
 
 ---
 
-## MCP 插件 (45 Tools)
+## MCP 插件 (51 Tools)
 
 | 插件 | Tools | 说明 |
 |------|:--:|------|
@@ -84,12 +84,12 @@ bash scripts/start.sh
 | **disk** | 5 | inspect, inode_usage, io_stats, mount_audit, large_files |
 | **network** | 6 | listening_ports, connections_summary, interface_stats, firewall_audit, tcp_retrans, dns_check |
 | **memory** | 5 | info, swap_info, oom_history, hugepages, slab_info |
-| **security** | 11 | auth_failures, active_sessions, suid_scan, crontab_audit, kernel_modules, pending_updates, user_audit, sysctl_audit, user_list, open_files, selinux_status |
-| **system** | 7 | info, load, failed_services, boot_params, package_updates, entropy, health_config_get |
+| **security** | 13 | auth_failures, active_sessions, suid_scan, crontab_audit, kernel_modules, pending_updates, user_audit, sysctl_audit, user_list, open_files, selinux_status, password_policy, user_privilege |
+| **system** | 10 | info, load, failed_services, boot_params, package_updates, entropy, cpu_detail, bios_info, journal_query, journal_tail |
 | **container** | 3 | list, stats, inspect |
-| **health_config** | 2 | get, set 🟡 |
+| **health_config** | 2 | get (read_only), set (restricted 🟡) |
 
-> 🔴 = dangerous, 🟡 = restricted, 其余 43 个均为 read_only
+> 🔴 = dangerous, 🟡 = restricted, 其余 49 个均为 read_only
 
 ---
 
@@ -104,15 +104,15 @@ XikiyAIOps/
 │   │   ├── permission_agent.py   # 最小权限执行代理 v2.0
 │   │   ├── platform_detect.py    # 麒麟 OS 平台检测
 │   │   └── rca_analyzer.py       # 根因分析引擎
-│   ├── mcp_plugins/             # MCP 插件 (8 大类 45 Tools)
+│   ├── mcp_plugins/             # MCP 插件 (8 大类 51 Tools)
 │   │   ├── base.py              # 注册中心 + 风险预检
 │   │   ├── _common.py           # 共享工具 + 命令白名单
 │   │   ├── process_plugin.py    # 进程感知 (7 Tools)
 │   │   ├── disk_plugin.py       # 磁盘感知 (5 Tools)
 │   │   ├── network_plugin.py    # 网络感知 (6 Tools)
 │   │   ├── memory_plugin.py     # 内存 + OOM (5 Tools)
-│   │   ├── security_plugin.py   # 安全态势 (11 Tools)
-│   │   ├── system_plugin.py     # 系统健康 (7 Tools)
+│   │   ├── security_plugin.py   # 安全态势 (13 Tools)
+│   │   ├── system_plugin.py     # 系统健康 (10 Tools)
 │   │   └── container_plugin.py  # 容器感知 (3 Tools)
 │   ├── api/                     # REST API (chat + audit)
 │   ├── llm/                     # LLM 适配层 (4 Provider)
@@ -141,7 +141,7 @@ XikiyAIOps/
 | LLM | Ollama (Qwen3) / DeepSeek / Qwen / OpenAI |
 | 安全 | 4+7+3 层防护 + 命令白名单 + 高危参数拦截 |
 | 数据库 | SQLite (SQLAlchemy AsyncSession) |
-| 部署 | 麒麟 V11 / LoongArch / 通用 Linux |
+| 部署 | 麒麟 V11 (LoongArch) / 通用 Linux (x86_64) — 架构自动适配 |
 
 ---
 
