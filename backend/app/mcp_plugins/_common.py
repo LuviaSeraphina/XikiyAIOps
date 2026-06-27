@@ -33,197 +33,184 @@ def error_response(tool, error):
 
 
 """
-方法: sanitize_response(), 响应脱敏 — 自动移除工具返回数据中的敏感字段
+方法: sanitize_response(), 响应脱敏 — 仅过滤真正敏感且 Agent 决策不需要的字段
 
-设计原则:
-- summary 字段完全保留 (已经是摘要, 无线索)
-- data 字段按白名单过滤: 未在 keep 列表中的字段被删除
-- 不在脱敏规则中的 tool 原样返回 (不误删)
+原则:
+  Agent 需要: 进程名/PID/路径/用户/端口/命令/日志 → 全部放行用于感知和判断
+  前端脱敏: uid/gid数字/home路径/MAC地址/shell路径 → 删除(无需展示)
 """
-# 脱敏规则: tool_name → data 中允许保留的字段 (白名单)
 _SANITIZE_RULES = {
     # ── 用户/权限类 ──
     "user_list": {
-        "keep_data": ["users"],  # users 列表中的每项过滤
-        "keep_user_fields": ["name", "is_system"],  # 删 uid/gid/home/shell
-        "keep_groups": True, "keep_group_fields": ["name", "gid"],  # groups 保留 name+gid, 删 members
+        "keep_data": ["users"],
+        "strip_fields": ["uid","gid","home","shell"],  # uid/gid数字无意义, home/shell是隐私
     },
     "security_user_audit": {
-        "keep_data": ["issues_count", "issues"],
-        "keep_issue_fields": ["type", "severity"],  # 删 user/detail
-        "redact_count": True,  # issues 仅保留统计, 不列具体项
+        "keep_data": ["issues_count","issues"],  # 保留完整 issues 列表供Agent分析
     },
     "security_user_privilege": {
-        "keep_data": ["username", "sudo_access", "home_permission", "source"],
-        "redact_username": True,  # username 替换为 "***"
+        "keep_data": ["username","sudo_access","home_permission","source"],  # 放行 username
     },
-    # ── 会话/认证类 ──
+    # ── 会话/认证类 ── Agent需要追踪入侵来源
     "security_auth_failures": {
-        "keep_data": ["total_failures", "by_type_summary", "sources_count"],
-        "keep_detail_fields": [],  # 不保留 failed_ips / failed_users 明细
+        "keep_data": ["total_failures","by_type_summary","sources_count","failed_ips","failed_users"],
+        "mask_ips": True,  #保留IP但脱敏后两段
+        #保留IP和用户列表 — Agent需要判断是否被暴力破解
     },
     "security_active_sessions": {
-        "keep_data": ["session_count", "ssh_connection_count"],
-        # 不保留 sessions[].user/from_ip/pid 和 ssh_connections[].remote
+        "keep_data": ["session_count","ssh_connection_count","sessions","ssh_connections"],
+        "mask_ips": True,  #from_ip保留前两段
+        #保留完整会话信息 — Agent需要检测未授权登录
     },
-    # ── 进程类 ──
+    # ── 进程类 ── Agent需要 exe/username 判断进程合法性
     "process_detail": {
-        "keep_process_fields": ["pid", "name", "status", "cpu_percent", "memory_percent", "num_threads", "create_time"],
-        # 删 exe / cwd / username / num_fds / memory_info_rss_mb
+        "keep_data": ["process"],
+        "strip_fields": ["num_fds","memory_info_rss_mb"],  # fd数量和RSS细节非决策关键
     },
     "process_detail_handler": {
-        "keep_process_fields": ["pid", "name", "status", "cpu_percent", "memory_percent", "num_threads", "create_time"],
+        "keep_data": ["process"],
+        "strip_fields": ["num_fds","memory_info_rss_mb"],
     },
-    # ── 网络类 ──
+    # ── 网络类 ── Agent需要进程名判断谁在监听
     "network_listening_ports": {
-        "keep_data": ["port_count", "ports"],
-        "keep_port_fields": ["port", "proto"],  # 删 bind/process/pid
+        "keep_data": ["port_count","ports"],
+        "strip_fields": [],  #保留 bind/process/pid — Agent需要知道谁在监听什么端口
     },
     "network_interface_stats": {
-        "keep_data": ["interface_count", "interfaces"],
-        "keep_iface_fields": ["name", "state", "rx_bytes", "tx_bytes", "rx_errors", "tx_errors", "rx_dropped", "tx_dropped"],
-        # 删 mac / ipv4 / ipv6 / driver
+        "keep_data": ["interface_count","interfaces"],
+        "strip_fields": ["mac","driver"],  #MAC地址是硬件标识, 删除
     },
     "network_dns_check": {
-        "keep_data": ["domain", "dns_server", "count", "source"],
-        # 删 resolved_ips (具体 IP 列表)
+        "keep_data": ["domain","dns_server","count","source"],
+        #不保留 resolved_ips (解析出的IP列表过长且非决策关键)
     },
-    # ── 文件/磁盘类 ──
+    # ── 文件/磁盘类 ── Agent需要路径定位威胁
     "disk_mount_audit": {
-        "keep_data": ["mounts", "mount_count", "suspicious"],
-        "keep_mount_fields": ["mountpoint", "fstype", "security_flags"],
-        # 删 device / opts
+        "keep_data": ["mounts","mount_count","suspicious"],
+        "strip_fields": ["device"],  #设备路径保留(mountpoint), 裸设备名删除
     },
     "disk_large_files": {
-        "keep_data": ["file_count", "scan_path"],
-        # 删 files[].path (完整路径)
+        "keep_data": ["file_count","scan_path","files"],
+        "mask_paths": True,  #大文件路径脱敏 /home/ 部分
+        #保留完整文件路径 — Agent需要定位大文件
     },
     "security_suid_scan": {
-        "keep_data": ["total_files", "suspicious_count", "suspicious_files"],
-        "keep_suid_fields": ["permissions", "suspicious"],
-        # 删 files[].path / files[].owner
+        "keep_data": ["total_files","suspicious_count","suspicious_files","files"],
+        "mask_paths": True,  #系统路径/usr/bin保留, /home/脱敏
+        #保留文件路径和权限 — Agent需要判断SUID风险
     },
-    # ── 定时任务/启动类 ──
+    # ── 定时任务/启动类 ── Agent需要完整命令检测持久化
     "security_crontab_audit": {
-        "keep_data": ["total_entries", "suspicious_count", "suspicious_entries"],
-        "keep_cron_fields": ["user", "suspicious", "matched_keywords"],
-        # 删 entries[].entry (完整命令)
+        "keep_data": ["total_entries","suspicious_count","suspicious_entries","entries"],
+        "mask_paths": True,  #命令关键词保留, /home/路径脱敏
+        #保留完整 crontab 条目 — Agent需要识别恶意定时任务
     },
     "system_boot_params": {
-        "keep_data": ["security_checks", "missing_security_params", "raw_preview"],
-        # 删 raw (完整 cmdline)
+        "keep_data": ["security_checks","missing_security_params"],
+        #不保留 raw (完整cmdline太长)
     },
-    # ── 日志类 ──
+    # ── 日志类 ── Agent需要 message 正文调查事件
     "system_journal_query": {
-        "keep_data": ["total", "filter", "entries"],
-        "keep_journal_fields": ["timestamp", "service", "priority"],
-        # 删 entries[].hostname / message / pid
+        "keep_data": ["total","filter","entries"],
+        "strip_fields": [],
+        "mask_ips": True, "mask_paths": True,  #日志中的IP和路径脱敏  #保留 message — Agent需要日志内容分析问题
     },
     "system_journal_tail": {
-        "keep_data": ["priority", "lines_requested", "entries"],
-        "keep_journal_fields": ["timestamp", "service", "priority"],
+        "keep_data": ["priority","lines_requested","entries"],
+        "strip_fields": [],
+        "mask_ips": True, "mask_paths": True,
     },
-    # ── 容器类 ──
+    # ── 容器类 ── Agent需要完整容器信息做安全审计
     "container_inspect": {
-        "keep_data": ["id", "name", "image", "env_count", "privileged"],
-        # 删 capabilities / mounts
+        "keep_data": ["id","name","image","env_count","privileged","state","mounts_count"],
+        #保留特权标志和挂载数 — Agent需要判断容器逃逸风险
     },
     "container_list": {
-        "keep_data": ["containers", "count", "runtime"],
-        "keep_container_fields": ["id", "name", "image", "status"],
-        # 删 ports
+        "keep_data": ["containers","count","runtime"],
+        "strip_fields": [],  #保留 ports — Agent需要知道暴露的端口
     },
-    # ── 系统信息 ──
+    # ── 系统信息 ── hostname对多机运维有意义
     "system_info": {
-        "keep_data": ["os", "distro", "kernel", "arch", "boot_time", "cpu_cores_logical", "cpu_cores_physical", "pkg_manager", "firewall", "is_kylin", "display_name"],
-        # 删 hostname
+        "keep_data": ["hostname","os","distro","kernel","arch","boot_time","cpu_cores_logical","cpu_cores_physical","pkg_manager","firewall","is_kylin","display_name"],
     },
 }
 
 def sanitize_response(tool_name, response):
-    """根据工具名对响应数据脱敏, 返回清理后的 response dict"""
+    """根据工具名对响应数据脱敏 — 仅过滤 strip_fields + IP脱敏 + 路径脱敏"""
     if tool_name is None:
         return response
-    rules = _SANITIZE_RULES.get(tool_name)
+    rules=_SANITIZE_RULES.get(tool_name)
     if rules is None:
-        return response  # 无规则, 原样返回
+        return response  #无规则, 原样返回
 
-    data = response.get("data", {})
-    if not isinstance(data, dict):
+    data=response.get("data",{})
+    if not isinstance(data,dict):
         return response
 
-    cleaned = {}
+    keep_data=rules.get("keep_data",[])
+    strip_fields=rules.get("strip_fields",[])
+    mask_ips=rules.get("mask_ips",False)
+    mask_paths=rules.get("mask_paths",False)
 
-    # 1. 白名单过滤 data 顶层字段
-    keep_data = rules.get("keep_data", [])
+    #构建顶层白名单
     if keep_data:
-        for key in keep_data:
-            if key in data:
-                cleaned[key] = data[key]
+        cleaned={k:data[k] for k in keep_data if k in data}
     else:
-        cleaned = dict(data)  # 无顶层白名单, 保留全部
+        cleaned=dict(data)
 
-    # 2. 对 users 列表中的每项过滤
-    if "keep_user_fields" in rules and "users" in cleaned and isinstance(cleaned.get("users"), list):
-        keepf = set(rules["keep_user_fields"])
-        cleaned["users"] = [{k: v for k, v in u.items() if k in keepf} for u in cleaned["users"]]
+    #对列表字段递归 strip 敏感子字段
+    if strip_fields:
+        for key in list(cleaned.keys()):
+            val=cleaned[key]
+            if isinstance(val,list):
+                cleaned[key]=[_strip_dict_fields(item,strip_fields) if isinstance(item,dict) else item for item in val]
+            elif isinstance(val,dict):
+                cleaned[key]=_strip_dict_fields(val,strip_fields)
 
-    # 3. 对 groups 列表过滤
-    if "keep_group_fields" in rules and "groups" in cleaned and isinstance(cleaned.get("groups"), list):
-        keepf = set(rules["keep_group_fields"])
-        cleaned["groups"] = [{k: v for k, v in g.items() if k in keepf} for g in cleaned["groups"]]
+    #IP脱敏: 递归扫描所有字符串值, 保留前两段
+    if mask_ips:
+        cleaned=_walk_and_mask(cleaned, _mask_ip)
 
-    # 4. issues 仅保留计数
-    if rules.get("redact_count") and "issues" in cleaned is not None:
-        cleaned["issues"] = f"[{len(cleaned['issues'])} 项, 已脱敏]"
+    #路径脱敏: 递归扫描所有字符串值, 隐藏用户目录
+    if mask_paths:
+        cleaned=_walk_and_mask(cleaned, _mask_home_path)
 
-    # 5. username 脱敏
-    if rules.get("redact_username"):
-        if "username" in cleaned:
-            cleaned["username"] = "***"
-
-    # 6. process 对象过滤
-    if "keep_process_fields" in rules and "process" in cleaned and isinstance(cleaned.get("process"), dict):
-        keepf = set(rules["keep_process_fields"])
-        cleaned["process"] = {k: v for k, v in cleaned["process"].items() if k in keepf}
-
-    # 7. ports 列表中每项过滤
-    if "keep_port_fields" in rules and "ports" in cleaned and isinstance(cleaned.get("ports"), list):
-        keepf = set(rules["keep_port_fields"])
-        cleaned["ports"] = [{k: v for k, v in p.items() if k in keepf} for p in cleaned["ports"]]
-
-    # 8. interfaces 列表过滤
-    if "keep_iface_fields" in rules and "interfaces" in cleaned and isinstance(cleaned.get("interfaces"), list):
-        keepf = set(rules["keep_iface_fields"])
-        cleaned["interfaces"] = [{k: v for k, v in iface.items() if k in keepf} for iface in cleaned["interfaces"]]
-
-    # 9. mounts 列表过滤
-    if "keep_mount_fields" in rules and "mounts" in cleaned and isinstance(cleaned.get("mounts"), list):
-        keepf = set(rules["keep_mount_fields"])
-        cleaned["mounts"] = [{k: v for k, v in m.items() if k in keepf} for m in cleaned["mounts"]]
-
-    # 10. suspicious_files / files 列表过滤
-    if "keep_suid_fields" in rules and "suspicious_files" in cleaned and isinstance(cleaned.get("suspicious_files"), list):
-        keepf = set(rules["keep_suid_fields"])
-        cleaned["suspicious_files"] = [{k: v for k, v in f.items() if k in keepf} for f in cleaned["suspicious_files"]]
-
-    # 11. crontab entries 过滤
-    if "keep_cron_fields" in rules and "suspicious_entries" in cleaned and isinstance(cleaned.get("suspicious_entries"), list):
-        keepf = set(rules["keep_cron_fields"])
-        cleaned["suspicious_entries"] = [{k: v for k, v in e.items() if k in keepf} for e in cleaned["suspicious_entries"]]
-
-    # 12. journal entries 过滤
-    if "keep_journal_fields" in rules and "entries" in cleaned and isinstance(cleaned.get("entries"), list):
-        keepf = set(rules["keep_journal_fields"])
-        cleaned["entries"] = [{k: v for k, v in e.items() if k in keepf} for e in cleaned["entries"]]
-
-    # 13. containers 列表过滤
-    if "keep_container_fields" in rules and "containers" in cleaned and isinstance(cleaned.get("containers"), list):
-        keepf = set(rules["keep_container_fields"])
-        cleaned["containers"] = [{k: v for k, v in c.items() if k in keepf} for c in cleaned["containers"]]
-
-    response["data"] = cleaned
+    response["data"]=cleaned
     return response
+
+
+def _strip_dict_fields(d:dict, fields:list)->dict:
+    """从 dict 中删除指定字段"""
+    return {k:v for k,v in d.items() if k not in fields}
+
+
+def _walk_and_mask(obj, mask_fn):
+    """递归遍历 dict/list, 对所有字符串值应用 mask_fn"""
+    if isinstance(obj,dict):
+        return {k:_walk_and_mask(v,mask_fn) for k,v in obj.items()}
+    elif isinstance(obj,list):
+        return [_walk_and_mask(v,mask_fn) for v in obj]
+    elif isinstance(obj,str):
+        return mask_fn(obj)
+    return obj
+
+
+def _mask_ip(text:str)->str:
+    """IP地址脱敏: 保留前两段, 后两段替换为 ***, 仅匹配合法IPv4"""
+    import re
+    _octet=r'(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)'
+    _ip=rf'\b({_octet}\.{_octet}\.{_octet}\.{_octet})\b'
+    def _replace(m):
+        parts=m.group(0).split('.')
+        return f"{parts[0]}.{parts[1]}.***.***"
+    return re.sub(_ip, _replace, text)
+
+
+def _mask_home_path(text:str)->str:
+    """用户目录路径脱敏: /home/username → /home/***, /root → /root (保留)"""
+    import re
+    #匹配 /home/ 后跟用户名 (非空白/非斜杠)
+    return re.sub(r'/home/[^/\s"]+', '/home/***', text)
 
 # 允许执行的命令白名单 (只有这些命令可通过 run_command 执行)
 _ALLOWED_COMMANDS={
