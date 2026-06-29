@@ -6,7 +6,22 @@ MCP RAG 知识库插件
 - rag_stats:  查看知识库统计信息
 """
 from app.mcp_plugins._common import make_response as _make_response, error_response as _error_response
-from app.rag import search, get_stats
+
+#延迟导入 — LoongArch 上 numpy 可能缺少 Fortran 运行时, 不阻塞插件注册
+_search_fn=None
+_stats_fn=None
+
+def _lazy_import():
+    global _search_fn, _stats_fn
+    if _search_fn is not None: return True
+    try:
+        from app.rag import search as _s, get_stats as _g
+        _search_fn=_s; _stats_fn=_g
+        return True
+    except ImportError as e:
+        return False
+    except Exception as e:
+        return False
 
 
 """
@@ -21,7 +36,9 @@ def rag_search_handler(query:str="", top_k:int=5):
         )
 
     try:
-        results=search(query.strip(), top_k=min(top_k, 10))
+        if not _lazy_import():
+            return _error_response("rag_search", "RAG 知识库不可用 (numpy/Fortran 运行时缺失)")
+        results=_search_fn(query.strip(), top_k=min(top_k, 10))
 
         if not results:
             return _make_response("rag_search",
@@ -57,7 +74,9 @@ def rag_search_handler(query:str="", top_k:int=5):
 """
 def rag_stats_handler():
     try:
-        stats=get_stats()
+        if not _lazy_import():
+            return _error_response("rag_stats", "RAG 知识库不可用")
+        stats=_stats_fn()
         return _make_response("rag_stats",
             data=stats,
             summary={
