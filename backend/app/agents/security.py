@@ -19,13 +19,7 @@ class SecurityAgent:
     # ── 第一道: 输入审查 ──────────────────
 
     def review_input(self, user_input:str)->Tuple[bool,str,str]:
-        """
-        审查用户输入
-        Returns: (allowed, reason, risk_level)
-          allowed=True,  reason="OK"          → 放行
-          allowed=True,  reason="CONFIRM"     → 需用户确认
-          allowed=False, reason="拦截原因"     → 直接拦截
-        """
+    # 审查用户输入         Returns: (allowed, reason, risk_level)           allowed=True,  r
         if not user_input or not user_input.strip():
             return False, "输入为空", "blocked"
 
@@ -50,10 +44,7 @@ class SecurityAgent:
     # ── 第二道: 工具审批 ──────────────────
 
     def approve_tool(self, tool_name:str, arguments:Dict, risk_level:str)->Tuple[bool,str]:
-        """
-        审批每次工具调用
-        Returns: (approved, reason)
-        """
+    # 审批每次工具调用         Returns: (approved, reason)
         #参数注入检测
         args_str=json.dumps(arguments, ensure_ascii=False)
         injection_hits=detect_injection(args_str)
@@ -77,7 +68,7 @@ class SecurityAgent:
     # ── 第三道: 事后审计 ──────────────────
 
     def audit(self, session_id:str, tool_name:str, arguments:Dict, result:Dict):
-        """记录工具调用审计日志"""
+    # 记录工具调用审计日志
         try:
             #脱敏后记录
             safe_result=sanitize_response(tool_name, result.get("data",{})) if result else {}

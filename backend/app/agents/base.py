@@ -41,7 +41,7 @@ class BaseAgent:
         return self.allowed_tools
 
     def build_messages(self, user_content:str, rag_context:str="")->List[Dict]:
-        """构建 LLM messages: system prompt + 用户输入"""
+    # 构建 LLM messages: system prompt + 用户输入
         system=self.system_prompt
         if rag_context:
             system+=rag_context

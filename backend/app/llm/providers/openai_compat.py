@@ -35,7 +35,7 @@ class OpenAICompatProvider(BaseLLMProvider):
 
     @staticmethod
     def _parse_arguments(arg_str: str):
-        """OpenAI 流式返回 arguments 是分片的 JSON 字符串, 解析为 dict"""
+    # OpenAI 流式返回 arguments 是分片的 JSON 字符串, 解析为 dict
         if not arg_str:
             return {}
         try:
@@ -44,12 +44,7 @@ class OpenAICompatProvider(BaseLLMProvider):
             return {}
 
     def _normalize_messages(self, messages: list) -> list:
-        """将内部 dict 格式的 tool_calls 转回 OpenAI API 要求的格式
-
-        OpenAI API 要求:
-          - assistant.tool_calls[].function.arguments: JSON 字符串 (非 dict)
-          - tool.tool_call_id: 必须匹配对应 tool_call 的 id(一一对应,不重复)
-        """
+    # 将内部 dict 格式的 tool_calls 转回 OpenAI API 要求的格式          OpenAI API 要求:           - 
         normalized = []
         used_tool_call_ids: set = set()  # 防止多 tool 并发时重复匹配同一个 id
         for msg in messages:

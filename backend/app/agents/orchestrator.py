@@ -36,7 +36,7 @@ class Orchestrator:
     # ── 意图分析 ──────────────────────────
 
     def classify(self, user_input:str)->str:
-        """分析用户意图 → 意图类别"""
+    # 分析用户意图 → 意图类别
         from app.core.intent_filter import classify_intent, IntentCategory
         cat, hits, _=classify_intent(user_input, return_score=True)
         #直接返回枚举值的字符串
@@ -191,7 +191,7 @@ class Orchestrator:
     # ── 构造 LLM 总结 prompt ──────────────
 
     def _build_summary_prompt(self, user_query:str, tool_results:List[Dict])->str:
-        """将各Agent返回的数据聚合为一个总结 prompt"""
+    # 将各Agent返回的数据聚合为一个总结 prompt
         lines=[f"用户查询: {user_query}\n"]
         lines.append("各 Agent 采集的数据如下:\n")
 

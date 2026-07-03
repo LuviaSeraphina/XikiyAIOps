@@ -333,8 +333,12 @@ vector_store=VectorStore()
 
 # ── 统一分词 (供 retrieval BM25 和 TF-IDF 共用) ──
 
+"""
+方法: tokenize_for_tfidf(text), TF-IDF 分词: 中文 char bigram + 英文/数字词, 用于 EmbeddingModel._tokenize
+
+"""
+
 def tokenize_for_tfidf(text:str)->List[str]:
-    """TF-IDF 分词: 中文 char bigram + 英文/数字词, 用于 EmbeddingModel._tokenize"""
     tokens=[]
     for m in _re.finditer(r'[\u4e00-\u9fff]+', text):
         seg=m.group()
@@ -347,8 +351,12 @@ def tokenize_for_tfidf(text:str)->List[str]:
     return tokens
 
 
+"""
+方法: tokenize_for_bm25(text), BM25 分词: 中文单字 + 英文按空白/标点切, 过滤短词, 用于检索管道
+
+"""
+
 def tokenize_for_bm25(text:str)->List[str]:
-    """BM25 分词: 中文单字 + 英文按空白/标点切, 过滤短词, 用于检索管道"""
     tokens=[]
     buf=""
     for ch in text:

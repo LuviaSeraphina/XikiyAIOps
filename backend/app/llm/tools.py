@@ -14,12 +14,12 @@ from app.mcp_plugins.base import registry
 _cached_tools = None
 
 
-def convert_tool_schemas(registry_tools: list) -> list:
-    """纯函数 — 将 registry Tool Schema 列表转换为 function calling 格式。
+"""
+方法: convert_tool_schemas(registry_tools), 纯函数 — 将 registry Tool Schema 列表转换为 function calling 格式。      单一事实来源: tools.py::convert_tool_schemas 
 
-    单一事实来源: tools.py::convert_tool_schemas
-    调用方: get_tools() (缓存版本) / BaseLLMProvider.convert_tools() (子类可覆盖)
-    """
+"""
+
+def convert_tool_schemas(registry_tools: list) -> list:
     tools = []
     for t in registry_tools:
         tools.append({
@@ -33,8 +33,12 @@ def convert_tool_schemas(registry_tools: list) -> list:
     return tools
 
 
+"""
+方法: get_tools(), 获取标准化 Tool Schema 列表 (带缓存, 进程生命周期内不变)
+
+"""
+
 def get_tools() -> list:
-    """获取标准化 Tool Schema 列表 (带缓存, 进程生命周期内不变)"""
     global _cached_tools
     if _cached_tools is not None:
         return _cached_tools

@@ -80,8 +80,12 @@ def _current_user():
         return f"uid:{uid}"
 
 
+"""
+方法: _is_xikiy_ops_user_available(), 检查专用 xikiyops 用户是否已创建
+
+"""
+
 def _is_xikiy_ops_user_available():
-    """检查专用 xikiyops 用户是否已创建"""
     try:
         pwd.getpwnam(_XIKIY_OPS_USER)
         return True
@@ -89,8 +93,12 @@ def _is_xikiy_ops_user_available():
         return False
 
 
+"""
+方法: _get_sandbox_user(), 获取可用的沙箱用户
+
+"""
+
 def _get_sandbox_user():
-    """获取可用的沙箱用户"""
     if _is_xikiy_ops_user_available():
         return _XIKIY_OPS_USER
     try:
@@ -100,8 +108,12 @@ def _get_sandbox_user():
         return None
 
 
+"""
+方法: _user_in_group(user, group_name), 检查指定用户是否在指定组中
+
+"""
+
 def _user_in_group(user, group_name):
-    """检查指定用户是否在指定组中"""
     try:
         user_info = pwd.getpwnam(user)
         g=grp.getgrnam(group_name)

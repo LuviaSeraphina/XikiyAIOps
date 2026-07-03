@@ -520,8 +520,12 @@ _BUILTIN_CONFIG={
 
 
 # 从配置文件读取健康评分配置
+"""
+方法: load_health_config(path), 读取健康评分 JSON 配置文件, 返回 dict; 文件不存在或损坏时返回内置默认值
+
+"""
+
 def load_health_config(path=None):
-    """读取健康评分 JSON 配置文件, 返回 dict; 文件不存在或损坏时返回内置默认值"""
     target=path or _DEFAULT_CONFIG_PATH
     try:
         with open(target, "r", encoding="utf-8") as f:
@@ -536,8 +540,12 @@ def load_health_config(path=None):
 
 
 # 将配置写回 JSON 文件
+"""
+方法: save_health_config(config, path), 校验并保存健康评分配置到 JSON 文件; 返回 (success: bool, message: str)
+
+"""
+
 def save_health_config(config, path=None):
-    """校验并保存健康评分配置到 JSON 文件; 返回 (success: bool, message: str)"""
     target=path or _DEFAULT_CONFIG_PATH
     # 校验必要字段
     for key in ("weights", "thresholds"):

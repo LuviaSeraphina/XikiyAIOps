@@ -308,8 +308,12 @@ def detect_injection(user_input):
 
 
 #方法: 综合安全判定 (intent_filter + injection_detector)
+"""
+方法: is_safe(user_input, intent_cat), 综合 intent_filter + injection_detector 的安全判定
+
+"""
+
 def is_safe(user_input, intent_cat=None):
-    """综合 intent_filter + injection_detector 的安全判定"""
     injection_hits = detect_injection(user_input)
     if injection_hits:
         return False, injection_hits

@@ -12,10 +12,13 @@ _TOP_K=int(os.getenv("RAG_AUTO_INJECT_TOP_K","3"))
 _initialized=False
 
 
+"""
+方法: ensure_updated(), 首次对话时做一次增量更新 (无变更 <0.1s), 后续跳过
+
+"""
+
 def ensure_updated():
-    """首次对话时做一次增量更新 (无变更 <0.1s), 后续跳过"""
     global _initialized
-    if _initialized or not _ENABLED: return
     _initialized=True
     try:
         from .ingestion import build_knowledge_base
@@ -24,10 +27,13 @@ def ensure_updated():
         pass  #RAG 未初始化或不可用, 静默跳过
 
 
+"""
+方法: inject_context(user_input), 根据用户输入自动检索 RAG 知识库, 返回注入到 system prompt 的上下文字符串
+
+"""
+
 def inject_context(user_input:str)->str:
-    """根据用户输入自动检索 RAG 知识库, 返回注入到 system prompt 的上下文字符串"""
     if not _ENABLED: return ""
-    if not user_input or len(user_input.strip())<3: return ""
     try:
         from .retrieval import search
         docs=search(user_input.strip(), top_k=_TOP_K)

@@ -182,10 +182,13 @@ def _process_tool_call(tc, skip_prefix=False):
 
     return tool_msg, events
 
-def _safe_div(a, b):
-    """安全除法, 除数为 0 时返回 0"""
-    return a / b if b else 0
+"""
+方法: _safe_div(a, b), 安全除法, 除数为 0 时返回 0
 
+"""
+
+def _safe_div(a, b):
+    return a / b if b else 0
 _METRIC_EXTRACTORS={
     "system_load": lambda data: {"load_ratio": _safe_div(data.get("load_1min", 0), max(data.get("cpu_cores", 1), 1))},
     "memory_info": lambda data: {"memory_percent": data.get("usage_percent", 0)},
@@ -209,16 +212,17 @@ def _extract_metrics(tool_results):
 
 # ── RAG 自动注入 (委托给 rag.inject 模块) ────────
 
+"""
+方法: _inject_rag_context(user_input), 根据用户输入自动检索知识库并注入 system prompt
+
+"""
+
 def _inject_rag_context(user_input:str)->str:
-    """根据用户输入自动检索知识库并注入 system prompt"""
     try:
-        from app.rag.inject import ensure_updated, inject_context
         ensure_updated()
         return inject_context(user_input)
     except Exception:
         return ""  #RAG 不可用时静默降级
-    except Exception:
-        return ""  #RAG 不可用时静默降级, 不影响对话
 
 
 """

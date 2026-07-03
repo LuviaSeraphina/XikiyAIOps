@@ -236,10 +236,13 @@ def build_knowledge_base(
 
 # ── 辅助: 按 source 删除旧块 ──────────────────────
 
+"""
+方法: _delete_chunks_by_sources(collection, sources), 增量更新前删除将被替换的旧向量块
+
+"""
+
 def _delete_chunks_by_sources(collection, sources:set):
-    """增量更新前删除将被替换的旧向量块"""
     try:
-        #ChromaDB: 按 metadata source 过滤删除
         if hasattr(collection,'_c'):
             #native 后端: sqlite DELETE
             for src in sources:

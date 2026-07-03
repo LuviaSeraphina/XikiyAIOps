@@ -13,8 +13,12 @@ _logger=logging.getLogger("xikiy_aiops.rag")
 _INDEX_PATH=os.path.join(_cfg.RAG_DB_DIR, "file_index.json")
 
 
+"""
+方法: load(), 读取已索引文件的 MD5 快照, 返回 {source: md5}
+
+"""
+
 def load()->Dict[str,str]:
-    """读取已索引文件的 MD5 快照, 返回 {source: md5}"""
     if not os.path.exists(_INDEX_PATH):
         return {}
     try:
@@ -23,24 +27,40 @@ def load()->Dict[str,str]:
     except Exception:
         return {}
 
+"""
+方法: save(index), 持久化文件索引
+
+"""
+
 def save(index:Dict[str,str]):
-    """持久化文件索引"""
     os.makedirs(os.path.dirname(_INDEX_PATH),exist_ok=True)
     with open(_INDEX_PATH,"w",encoding="utf-8") as f:
         json.dump(index,f,ensure_ascii=False,indent=2)
 
+"""
+方法: clear(), 删除索引 (force 重建时调用)
+
+"""
+
 def clear():
-    """删除索引 (force 重建时调用)"""
     if os.path.exists(_INDEX_PATH):
         os.remove(_INDEX_PATH)
 
+"""
+方法: file_md5(fpath), 计算文件 MD5 哈希
+
+"""
+
 def file_md5(fpath:str)->str:
-    """计算文件 MD5 哈希"""
     with open(fpath,"rb") as f:
         return hashlib.md5(f.read()).hexdigest()
 
+"""
+方法: build_from_chunks(chunks, docs_dir), 从已加载的 chunks 反推文件索引 (force 模式用)
+
+"""
+
 def build_from_chunks(chunks:List[Dict[str,str]], docs_dir:str)->Dict[str,str]:
-    """从已加载的 chunks 反推文件索引 (force 模式用)"""
     index={}
     for c in chunks:
         src=c.get("source","")

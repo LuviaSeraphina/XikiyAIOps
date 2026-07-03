@@ -144,8 +144,12 @@ _OPS_KEYWORDS_EN=[
 
 
 #方法: 计算综合威胁评分 (0.0 ~ 1.0)
+"""
+方法: _calculate_threat_score(layer1_hits, layer2_hits, layer3_hits), Layer 1 → 1.0, Layer 2×2 → 0.9, Layer 2×1 → 0.7, Layer 3×3 → 0.6, Layer 3×1 → 0.3
+
+"""
+
 def _calculate_threat_score(layer1_hits, layer2_hits, layer3_hits):
-    """Layer 1 → 1.0, Layer 2×2 → 0.9, Layer 2×1 → 0.7, Layer 3×3 → 0.6, Layer 3×1 → 0.3"""
     if layer1_hits:
         return 1.0
     if len(layer2_hits) >= _COMBO_UPGRADE_THRESHOLD:
