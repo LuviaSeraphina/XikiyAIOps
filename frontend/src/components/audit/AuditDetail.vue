@@ -135,10 +135,6 @@
                 <span v-for="t in item.stages[1]?.tools_called || []" :key="t" class="tag">{{ t }}</span>
               </div>
             </div>
-            <div class="field">
-              <span class="field-key">快照摘要</span>
-              <span class="field-val">{{ item.stages[1]?.snapshot_summary || '-' }}</span>
-            </div>
           </div>
         </StageBlock>
 

@@ -211,6 +211,7 @@ async def _persist_chat(session_id,user_input,events,tools_called,stage_input_ev
                         tc["result"]=result_data
                         break
                 #采集真实执行数据 (stdout/stderr/duration_ms 来自 result_data)
+                tname=edata.get("tool_name") or edata.get("tool","")
                 summary=result_data.get("summary",{})
                 data=result_data.get("data",{})
                 is_error=edata.get("status")=="error" or result_data.get("risk_level") in ("error","blocked")
@@ -222,7 +223,7 @@ async def _persist_chat(session_id,user_input,events,tools_called,stage_input_ev
                 raw_stderr=str(data.get("stderr",""))[:500] if data.get("stderr") else ""
                 raw_duration=data.get("duration_ms",0) if isinstance(data.get("duration_ms"),(int,float)) else 0
                 tool_executions.append({
-                    "tool_name":edata.get("tool_name",""),
+                    "tool_name":tname,
                     "status":edata.get("status","done"),
                     "is_anomaly":is_error,
                     "exit_code":1 if is_error else 0,
@@ -241,8 +242,9 @@ async def _persist_chat(session_id,user_input,events,tools_called,stage_input_ev
                 })
 
             elif etype=="tool_skipped":
+                tname_skipped=edata.get("tool_name") or edata.get("tool","")
                 tool_executions.append({
-                    "tool_name":edata.get("tool_name",""),
+                    "tool_name":tname_skipped,
                     "status":"skipped",
                     "is_anomaly":False,
                     "exit_code":-1,
@@ -320,75 +322,45 @@ async def _persist_chat(session_id,user_input,events,tools_called,stage_input_ev
                 _build_audit_item(stage_input_event, shared_perception, shared_reasoning, shared_validation, stage_exec, is_anomaly, anomaly_type),
             ])
         else:
-            #v2.1: 每个 tool 独立一条 AuditLog
-            audit_items=[]
+            #v3: 一次对话一条 AuditLog, 记录全部调用的工具
+            tool_names=[te["tool_name"] for te in tool_executions]
+            any_anomaly=any(te["is_anomaly"] for te in tool_executions)
+            any_skipped=any(te.get("status")=="skipped" for te in tool_executions)
+
+            tool_perception={
+                "tools_called":tool_names,
+            }
+
+            #聚合安全规则
+            all_rules=[]
             for te in tool_executions:
-                tool_name=te["tool_name"]
-                is_skipped=te.get("status")=="skipped"
-                is_anomaly=te["is_anomaly"]
-                anomaly_type="tool_error" if is_anomaly else "none"
-
-                #阶段 2: 感知 (单 tool)
-                tool_perception={
-                    "tools_called":[tool_name],
-                    "snapshot_summary":f"调用工具: {tool_name}",
+                tn=te["tool_name"]
+                all_rules.extend(r["summary"] for r in security_rules if r.get("tool_name")==tn)
+            if all_rules:
+                tool_validation={
+                    "rules_hit":all_rules,
+                    "risk_score":50,
+                    "decision":"user_cancelled" if all(te.get("status")=="skipped" for te in tool_executions) else "confirmed",
+                    "reason":"; ".join(all_rules),
                 }
+            else:
+                tool_validation=dict(shared_validation)
 
-                if is_skipped:
-                    tool_validation={
-                        "rules_hit":[],
-                        "risk_score":0,
-                        "decision":"user_cancelled",
-                        "reason":"用户未确认: {}".format(te.get("output_summary","")),
-                    }
-                    tool_exec={
-                        "action_taken":f"跳过 {tool_name}",
-                        "tool_executions":[te],
-                        "is_anomaly":False,
-                        "anomaly_type":"none",
-                        "duration_ms":0,
-                    }
-                    tool_exec["causal_chain"]=build_causal_chain(
-                        stage_input_event, tool_perception, shared_reasoning,
-                        tool_validation, tool_exec,
-                    )
-                    audit_items.append(
-                        _build_audit_item(stage_input_event, tool_perception, shared_reasoning, tool_validation, tool_exec, False, "none"),
-                    )
-                    continue
+            tool_exec={
+                "action_taken":f"执行 {len(tool_executions)} 个工具" if not any_anomaly else f"{'部分' if any_anomaly else ''}工具执行异常",
+                "tool_executions":tool_executions,
+                "is_anomaly":any_anomaly,
+                "anomaly_type":"tool_error" if any_anomaly else "none",
+                "duration_ms":sum(te.get("duration_ms",0) for te in tool_executions),
+            }
+            tool_exec["causal_chain"]=build_causal_chain(
+                stage_input_event, tool_perception, shared_reasoning,
+                tool_validation, tool_exec,
+            )
 
-                #阶段 4: 安全校验 (提取该 tool 相关的 security_check)
-                tool_rules=[r for r in security_rules if r.get("tool_name")==tool_name]
-                if tool_rules:
-                    tool_validation={
-                        "rules_hit":[r["summary"] for r in tool_rules],
-                        "risk_score":50,
-                        "decision":"confirmed",
-                        "reason":"; ".join(r["summary"] for r in tool_rules),
-                    }
-                else:
-                    tool_validation=dict(shared_validation)
-
-                #阶段 5: 执行结果 (单 tool)
-                tool_exec={
-                    "action_taken":f"执行 {tool_name}" if not is_anomaly else f"{tool_name} 执行异常",
-                    "tool_executions":[te],
-                    "is_anomaly":is_anomaly,
-                    "anomaly_type":anomaly_type,
-                    "duration_ms":te.get("duration_ms",0),
-                    "stdout":te.get("stdout",""),
-                    "stderr":te.get("stderr",""),
-                }
-                tool_exec["causal_chain"]=build_causal_chain(
-                    stage_input_event, tool_perception, shared_reasoning,
-                    tool_validation, tool_exec,
-                )
-
-                audit_items.append(
-                    _build_audit_item(stage_input_event, tool_perception, shared_reasoning, tool_validation, tool_exec, is_anomaly, anomaly_type),
-                )
-
-            await save_audit_logs_batch(db, session_id, "anonymous", risk_level, audit_items)
+            await save_audit_logs_batch(db, session_id, "anonymous", risk_level, [
+                _build_audit_item(stage_input_event, tool_perception, shared_reasoning, tool_validation, tool_exec, any_anomaly, "tool_error" if any_anomaly else "none"),
+            ])
 
         #提交事务 — async_session() 不会 auto-commit
         await db.commit()
