@@ -30,7 +30,7 @@ echo -e "${NC}"
 # ============================================================
 # Step 1: 环境检测
 # ============================================================
-echo -e "\n${BOLD}▶ Step 1/5: 环境检测${NC}"
+echo -e "\n${BOLD}▶ Step 1/6: 环境检测${NC}"
 
 ARCH="$(uname -m)"
 IS_LOONGARCH=false
@@ -70,7 +70,7 @@ install_pkg() {
 # ============================================================
 # Step 2: 系统依赖
 # ============================================================
-echo -e "\n${BOLD}▶ Step 2/5: 系统依赖${NC}"
+echo -e "\n${BOLD}▶ Step 2/6: 系统依赖${NC}"
 
 #离线 RPM (仅 LoongArch)
 if [ "$IS_LOONGARCH" = true ] && [ "$_HAS_RPM" = true ]; then
@@ -125,9 +125,123 @@ else
 fi
 
 # ============================================================
+# Step 2b: Prometheus (可选)
+# ============================================================
+echo -e "\n${BOLD}▶ Step 2b/6: Prometheus 监控${NC}"
+
+_INSTALL_PROM=false
+command -v prometheus &>/dev/null && _INSTALL_PROM=false || _INSTALL_PROM=true
+
+_install_prom_from_bin() {
+  #通用二进制安装: 从离线包解压到 / (不含 web UI, 不需要)
+  local _src="$1"  # tarball 路径或 URL
+  local _tmp="$(mktemp -d)"
+  if echo "$_src" | grep -q '^https\?://'; then
+    log_info "下载 Prometheus 二进制包..."
+    curl -sL "$_src" -o "$_tmp/prometheus.tar.gz" || { log_err "下载失败"; rm -rf "$_tmp"; return 1; }
+    _src="$_tmp/prometheus.tar.gz"
+  fi
+  log_info "解压到 / ..."
+  sudo tar xzf "$_src" -C / 2>/dev/null
+  #创建数据目录
+  sudo mkdir -p /var/lib/prometheus/metrics-data
+  #创建 systemd 服务
+  _create_svc prometheus \
+    "Prometheus monitoring system" \
+    "/usr/local/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus/metrics-data --web.listen-address=0.0.0.0:9090"
+  _create_svc prometheus-alertmanager \
+    "Prometheus Alertmanager" \
+    "/usr/local/bin/alertmanager --config.file=/etc/prometheus/alertmanager.yml --cluster.listen-address= --web.listen-address=0.0.0.0:9093"
+  _create_svc prometheus-node-exporter \
+    "Prometheus Node Exporter" \
+    "/usr/local/bin/node_exporter --web.listen-address=0.0.0.0:9100"
+  sudo mkdir -p /etc/prometheus
+  rm -rf "$_tmp"
+}
+
+_create_svc() {
+  local _name="$1" _desc="$2" _exec="$3"
+  cat << SERVICEEOF | sudo tee /etc/systemd/system/$_name.service >/dev/null
+[Unit]
+Description=$_desc
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=$_exec
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SERVICEEOF
+}
+
+if [ "$_INSTALL_PROM" = true ]; then
+  log_info "安装 Prometheus + Alertmanager + Node Exporter..."
+  if [ "$IS_LOONGARCH" = true ]; then
+    #LoongArch: 优先用离线包, 没有则从 Debian sid 下载 .deb 提取
+    _PROM_OFFLINE="$PROJECT_DIR/offline-packages/prometheus-loongarch64.tar.gz"
+    if [ -f "$_PROM_OFFLINE" ]; then
+      log_info "使用离线包: $_PROM_OFFLINE"
+      _install_prom_from_bin "$_PROM_OFFLINE"
+    else
+      log_info "下载 Debian sid loong64 二进制..."
+      _tmp="$(mktemp -d)"
+      for _p_url in \
+        "http://ftp.us.debian.org/debian/pool/main/p/prometheus/prometheus_2.53.5+ds1-5_loong64.deb" \
+        "http://ftp.us.debian.org/debian/pool/main/p/prometheus-alertmanager/prometheus-alertmanager_0.31.1+ds-2_loong64.deb" \
+        "http://ftp.us.debian.org/debian/pool/main/p/prometheus-node-exporter/prometheus-node-exporter_1.11.1-2_loong64.deb"; do
+        _f="$(basename "$_p_url")"
+        curl -sL "$_p_url" -o "$_tmp/$_f" || true
+        [ -f "$_tmp/$_f" ] && cd "$_tmp" && ar x "$_f" 2>/dev/null && tar xJf data.tar.xz 2>/dev/null || true
+      done
+      #将解压出的二进制打包 (不含 web 资源, 不需要)
+      _final_tmp="$(mktemp -d)"
+      mkdir -p "$_final_tmp/usr/local/bin"
+      find "$_tmp" -name 'prometheus' -type f -executable 2>/dev/null | head -1 | xargs -I{} cp {} "$_final_tmp/usr/local/bin/prometheus" 2>/dev/null || true
+      find "$_tmp" -name 'prometheus-alertmanager' -type f -executable 2>/dev/null | head -1 | xargs -I{} cp {} "$_final_tmp/usr/local/bin/alertmanager" 2>/dev/null || true
+      find "$_tmp" -name 'amtool' -type f -executable 2>/dev/null | head -1 | xargs -I{} cp {} "$_final_tmp/usr/local/bin/" 2>/dev/null || true
+      find "$_tmp" -name 'prometheus-node-exporter' -type f -executable 2>/dev/null | head -1 | xargs -I{} cp {} "$_final_tmp/usr/local/bin/node_exporter" 2>/dev/null || true
+      tar czf "$_tmp/prometheus-bin.tar.gz" -C "$_final_tmp" .
+      _install_prom_from_bin "$_tmp/prometheus-bin.tar.gz"
+      rm -rf "$_tmp" "$_final_tmp"
+    fi
+  elif [ "$PKG_MGR" = "apt" ]; then
+    sudo apt install -y prometheus prometheus-alertmanager prometheus-node-exporter 2>&1 | tail -1 || true
+  elif [ "$PKG_MGR" = "dnf" ]; then
+    sudo dnf install -y prometheus2 alertmanager prometheus-node-exporter 2>&1 | tail -1 || true
+  fi
+fi
+
+if command -v prometheus &>/dev/null; then
+  log_ok "Prometheus: $(prometheus --version 2>&1 | head -1)"
+  #复制项目配置到 /etc/prometheus/
+  sudo mkdir -p /etc/prometheus
+  for _cfg in prometheus.yml alertmanager.yml xikiy-rules.yml; do
+    if [ -f "$PROJECT_DIR/prometheus/$_cfg" ]; then
+      sudo cp "$PROJECT_DIR/prometheus/$_cfg" "/etc/prometheus/$_cfg"
+      log_ok "配置已部署: /etc/prometheus/$_cfg"
+    fi
+  done
+  #修复 Alertmanager: 单节点禁用 gossip mesh (否则无私网 IP 时启动失败)
+  if [ -f /etc/default/prometheus-alertmanager ]; then
+    sudo sed -i 's/^ARGS=.*/ARGS="--cluster.listen-address="/' /etc/default/prometheus-alertmanager
+  fi
+  #重启服务
+  sudo systemctl daemon-reload 2>/dev/null || true
+  sudo systemctl enable prometheus prometheus-alertmanager prometheus-node-exporter 2>/dev/null || true
+  sudo systemctl restart prometheus prometheus-alertmanager prometheus-node-exporter 2>/dev/null || true
+  log_ok "Prometheus 服务已启动"
+else
+  log_warn "Prometheus 未安装或安装失败, 跳过配置"
+fi
+
+# ============================================================
 # Step 3: 后端依赖
 # ============================================================
-echo -e "\n${BOLD}▶ Step 3/5: 后端依赖${NC}"
+echo -e "\n${BOLD}▶ Step 3/6: 后端依赖${NC}"
 cd "$BACKEND_DIR"
 
 VENV_DIR="$BACKEND_DIR/.venv"
@@ -209,7 +323,7 @@ log_ok "后端依赖就绪 ($("$VENV_PIP" list 2>/dev/null | wc -l) 个包)"
 # ============================================================
 # Step 4: 前端
 # ============================================================
-echo -e "\n${BOLD}▶ Step 4/5: 前端${NC}"
+echo -e "\n${BOLD}▶ Step 4/6: 前端${NC}"
 
 if [ -f "$FRONTEND_DIR/dist/index.html" ]; then
   log_ok "前端已预构建 (dist/), 跳过"
@@ -226,7 +340,7 @@ fi
 # ============================================================
 # Step 5: 配置
 # ============================================================
-echo -e "\n${BOLD}▶ Step 5/5: 配置${NC}"
+echo -e "\n${BOLD}▶ Step 5/6: 配置${NC}"
 cd "$BACKEND_DIR"
 
 #.env (支持环境变量预设: SRE_LLM_PROVIDER / SRE_LLM_MODEL / SRE_LLM_API_KEY)
