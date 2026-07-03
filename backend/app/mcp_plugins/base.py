@@ -29,7 +29,7 @@ class MCPTool:
         self.parameters=parameters or {}
 
     def to_schema(self):
-        """转为 MCP 协议的 Tool Schema"""
+    # 转为 MCP 协议的 Tool Schema
         return {
             "name": self.name,
             "description": self.description,
@@ -41,7 +41,7 @@ class MCPTool:
         }
 
     def execute(self, **kwargs):
-        """执行 Tool, 返回统一结构 (handler 内部已有异常保护)"""
+    # 执行 Tool, 返回统一结构 (handler 内部已有异常保护)
         return self.handler(**kwargs)
 
 
@@ -57,27 +57,25 @@ class MCPPluginRegistry:
         return cls._instance
 
     def register(self, tool):
-        """注册一个 MCP Tool"""
+    # 注册一个 MCP Tool
         self._tools[tool.name]=tool
 
     def get_tool(self, name):
-        """按名称获取 Tool"""
+    # 按名称获取 Tool
         return self._tools.get(name)
 
     def list_all(self):
-        """列出所有已注册 Tool 的 Schema"""
+    # 列出所有已注册 Tool 的 Schema
         return [t.to_schema() for t in self._tools.values()]
 
     def list_by_risk(self, max_risk):
-        """按风险等级过滤 Tool"""
+    # 按风险等级过滤 Tool
         risk_order={RiskLevel.READ_ONLY: 0, RiskLevel.RESTRICTED: 1, RiskLevel.DANGEROUS: 2}
         max_level=risk_order[RiskLevel(max_risk)]
         return [t for t in self._tools.values() if risk_order[t.risk_level]<=max_level]
 
     def call(self, name, _raw=False, **kwargs):
-        """统一调用入口, 自动校验 risk_level + 权限预检
-        _raw=True: 跳过脱敏 (供 Agent 内部感知用, 前端展示仍需单独脱敏)
-        """
+    # 统一调用入口, 自动校验 risk_level + 权限预检         _raw=True: 跳过脱敏 (供 Agent 内部感知用, 前端展示仍需单独脱
         tool=self._tools.get(name)
         if not tool:
             return {"tool": name, "risk_level": "error", "data": {}, "summary": {"error": "Tool not found: {}".format(name)}}
@@ -462,6 +460,53 @@ def _auto_register_all(reg):
         description="查看 RAG 知识库统计信息: 总条目数/集合状态",
         handler=_safe_import("app.mcp_plugins.rag_plugin", "rag_stats_handler"),
         risk_level=RiskLevel.READ_ONLY,
+    ))
+
+    #---- Phase 3: 新增工具 (v0.3) ----
+    reg.register(MCPTool(
+        name="network_ping",
+        description="ICMP 连通性检查 (ping): 返回丢包率、RTT 最小/平均/最大/抖动",
+        handler=_safe_import("app.mcp_plugins.network_plugin", "network_ping"),
+        risk_level=RiskLevel.READ_ONLY,
+        parameters={
+            "target": {"type": "string", "description": "目标 IP 或域名"},
+            "count": {"type": "integer", "default": 3, "minimum": 1, "maximum": 10, "description": "ping 次数"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="network_http_check",
+        description="HTTP 端点健康检查: 返回状态码、响应时间、是否可达",
+        handler=_safe_import("app.mcp_plugins.network_plugin", "network_http_check"),
+        risk_level=RiskLevel.READ_ONLY,
+        parameters={
+            "url": {"type": "string", "description": "目标 URL (http:// 或 https://)"},
+            "timeout": {"type": "integer", "default": 5, "minimum": 1, "maximum": 30, "description": "超时秒数"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="vmstat_stats",
+        description="虚拟内存统计 (vmstat): CPU/IO/swap/上下文切换/中断的实时采样数据",
+        handler=_safe_import("app.mcp_plugins.system_plugin", "vmstat_stats"),
+        risk_level=RiskLevel.READ_ONLY,
+        parameters={
+            "intervals": {"type": "integer", "default": 1, "minimum": 1, "maximum": 5, "description": "采样间隔秒数"},
+            "count": {"type": "integer", "default": 3, "minimum": 1, "maximum": 10, "description": "采样次数"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="system_timers",
+        description="列出 systemd 定时器: 名称/下次触发时间/上次触发时间/关联服务",
+        handler=_safe_import("app.mcp_plugins.system_plugin", "system_timers"),
+        risk_level=RiskLevel.READ_ONLY,
+    ))
+    reg.register(MCPTool(
+        name="process_smaps",
+        description="进程内存映射分析: RSS/PSS/共享/私有/匿名/脏页/Swap 使用量",
+        handler=_safe_import("app.mcp_plugins.process_plugin", "process_smaps_handler"),
+        risk_level=RiskLevel.READ_ONLY,
+        parameters={
+            "pid": {"type": "integer", "description": "进程 PID"},
+        },
     ))
 
 

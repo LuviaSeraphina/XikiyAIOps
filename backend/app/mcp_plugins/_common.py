@@ -135,8 +135,12 @@ _SANITIZE_RULES = {
     },
 }
 
+"""
+方法: sanitize_response(tool_name, response), 根据工具名对响应数据脱敏 — 仅过滤 strip_fields + IP脱敏 + 路径脱敏
+
+"""
+
 def sanitize_response(tool_name, response):
-    """根据工具名对响应数据脱敏 — 仅过滤 strip_fields + IP脱敏 + 路径脱敏"""
     if tool_name is None:
         return response
     rules=_SANITIZE_RULES.get(tool_name)
@@ -179,13 +183,21 @@ def sanitize_response(tool_name, response):
     return response
 
 
+"""
+方法: _strip_dict_fields(d, fields), 从 dict 中删除指定字段
+
+"""
+
 def _strip_dict_fields(d:dict, fields:list)->dict:
-    """从 dict 中删除指定字段"""
     return {k:v for k,v in d.items() if k not in fields}
 
 
+"""
+方法: _walk_and_mask(obj, mask_fn), 递归遍历 dict/list, 对所有字符串值应用 mask_fn
+
+"""
+
 def _walk_and_mask(obj, mask_fn):
-    """递归遍历 dict/list, 对所有字符串值应用 mask_fn"""
     if isinstance(obj,dict):
         return {k:_walk_and_mask(v,mask_fn) for k,v in obj.items()}
     elif isinstance(obj,list):
@@ -195,8 +207,12 @@ def _walk_and_mask(obj, mask_fn):
     return obj
 
 
+"""
+方法: _mask_ip(text), IP地址脱敏: 保留前两段, 后两段替换为 ***, 仅匹配合法IPv4
+
+"""
+
 def _mask_ip(text:str)->str:
-    """IP地址脱敏: 保留前两段, 后两段替换为 ***, 仅匹配合法IPv4"""
     import re
     _octet=r'(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)'
     _ip=rf'\b({_octet}\.{_octet}\.{_octet}\.{_octet})\b'
@@ -206,16 +222,20 @@ def _mask_ip(text:str)->str:
     return re.sub(_ip, _replace, text)
 
 
+"""
+方法: _mask_home_path(text), 用户目录路径脱敏: /home/username → /home/***, /root → /root (保留)
+
+"""
+
 def _mask_home_path(text:str)->str:
-    """用户目录路径脱敏: /home/username → /home/***, /root → /root (保留)"""
     import re
     #匹配 /home/ 后跟用户名 (非空白/非斜杠)
     return re.sub(r'/home/[^/\s"]+', '/home/***', text)
 
 # 允许执行的命令白名单 (只有这些命令可通过 run_command 执行)
 _ALLOWED_COMMANDS={
-    "ss","ip","who","find","lsmod","systemctl",
-    "journalctl","dmesg","cat","crontab","sysctl",
+    "ss","ip","who","find","lsmod","systemctl","vmstat",
+    "journalctl","dmesg","cat","crontab","sysctl","ping",
     "docker","podman","which","dnf","yum","apt",
     "iptables","nft","getenforce","aa-status","dig","getent",
     "dmidecode","groups",

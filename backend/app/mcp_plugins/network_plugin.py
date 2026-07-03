@@ -470,3 +470,83 @@ def network_dns_check(domain, dns_server=""):
         )
     except Exception as e:
         return _error_response("network_dns_check", e)
+
+
+# ── network_ping: ICMP 连通性检查 ──
+
+def network_ping(target,count=3):
+    """
+    方法: network_ping(target,count=3), ICMP 连通性检查 (ping)
+
+    """
+    try:
+        if not re.match(r'^[a-zA-Z0-9.-]+$',target):
+            return _error_response("network_ping",f"非法目标: {target}")
+        count=int(max(1,min(count,10)))
+        result=_run_command(["ping","-c",str(count),"-W","3",target],timeout=20)
+        if not _cmd_ok(result):
+            stdout=result.get("stdout","")
+            if "0 received" in stdout or "100% packet loss" in stdout:
+                return _make_response("network_ping",
+                    data={"target":target,"reachable":False,"packet_loss":"100%"},
+                    summary={"reachable":False,"packet_loss":"100%"},
+                )
+            return _error_response("network_ping","ping 执行失败")
+        stdout=result.get("stdout","")
+        pl_match=re.search(r'(\d+(?:\.\d+)?)% packet loss',stdout)
+        packet_loss=pl_match.group(1)+"%" if pl_match else "0%"
+        #解析 RTT
+        rtt_match=re.search(r'rtt min/avg/max/mdev = ([\d.]+)/([\d.]+)/([\d.]+)/([\d.]+)',stdout)
+        if rtt_match:
+            rtt={"min":float(rtt_match.group(1)),"avg":float(rtt_match.group(2)),
+                 "max":float(rtt_match.group(3)),"mdev":float(rtt_match.group(4))}
+        else:
+            rtt={"min":0,"avg":0,"max":0,"mdev":0}
+        loss_num=float(packet_loss.replace("%",""))
+        reachable=loss_num<100
+        return _make_response("network_ping",
+            data={"target":target,"reachable":reachable,"packet_loss":packet_loss,"rtt":rtt},
+            summary={"target":target,"reachable":reachable,"packet_loss":packet_loss,"rtt_avg":rtt.get("avg",0)},
+        )
+    except Exception as e:
+        return _error_response("network_ping",e)
+
+
+# ── network_http_check: HTTP 健康检查 ──
+
+def network_http_check(url,timeout=5):
+    """
+    方法: network_http_check(url,timeout=5), HTTP 端点健康检查
+
+    """
+    try:
+        import urllib.request
+        import urllib.error
+        import time as _time
+        timeout=int(max(1,min(timeout,30)))
+        if not url.startswith(("http://","https://")):
+            return _error_response("network_http_check","URL 必须以 http:// 或 https:// 开头")
+        start=_time.time()
+        try:
+            req=urllib.request.Request(url,headers={"User-Agent":"XikiyAIOps/1.0"})
+            resp=urllib.request.urlopen(req,timeout=timeout)
+            elapsed=round((_time.time()-start)*1000,2)
+            return _make_response("network_http_check",
+                data={"url":url,"status_code":resp.status,"response_time_ms":elapsed,"reachable":True},
+                summary={"url":url,"status":resp.status,"time_ms":elapsed},
+            )
+        except urllib.error.HTTPError as he:
+            elapsed=round((_time.time()-start)*1000,2)
+            return _make_response("network_http_check",
+                data={"url":url,"status_code":he.code,"response_time_ms":elapsed,"reachable":True,"error":str(he.reason)},
+                summary={"url":url,"status":he.code,"time_ms":elapsed},
+            )
+        except Exception as ue:
+            elapsed=round((_time.time()-start)*1000,2)
+            return _make_response("network_http_check",
+                data={"url":url,"status_code":0,"response_time_ms":elapsed,"reachable":False,"error":str(ue)[:100]},
+                summary={"url":url,"status":0,"error":str(ue)[:100]},
+            )
+    except Exception as e:
+        return _error_response("network_http_check",e)
+        return _error_response("network_http_check", e)

@@ -359,3 +359,75 @@ def process_kill_handler(pid, signal_name="SIGTERM"):
         return _error_response("process_kill_handler", f"无权限发送 {signal_name} 到 PID={pid}")
     except Exception as e:
         return _error_response("process_kill_handler", e)
+
+
+# ── process_smaps: 进程内存映射分析 ──
+
+def process_smaps_handler(pid):
+    """
+    方法: process_smaps_handler(pid), 进程内存映射分析: PSS/RSS/共享/私有/Swap 使用量
+
+    """
+    try:
+        pid=int(pid)
+        rollup_path=f"/proc/{pid}/smaps_rollup"
+        smaps_path=f"/proc/{pid}/smaps"
+        import os
+        if os.path.exists(rollup_path):
+            with open(rollup_path) as f:
+                raw=f.read()
+        elif os.path.exists(smaps_path):
+            with open(smaps_path) as f:
+                raw=f.read()
+        else:
+            return _error_response("process_smaps",f"进程 PID={pid} 不存在或无权限")
+        #解析关键字段 (单位 kB)
+        keys=["Rss","Pss","Shared_Clean","Shared_Dirty","Private_Clean","Private_Dirty",
+              "Referenced","Anonymous","Swap"]
+        totals={k:0 for k in keys}
+        for line in raw.split("\n"):
+            for k in keys:
+                if line.startswith(f"{k}:"):
+                    parts=line.split()
+                    if len(parts)>=2:
+                        try:
+                            totals[k]+=int(parts[1])
+                        except ValueError:
+                            pass
+        #获取进程名
+        proc_name=""
+        try:
+            with open(f"/proc/{pid}/comm") as f:
+                proc_name=f.read().strip()
+        except Exception:
+            pass
+        #告警判断
+        alerts=[]
+        shared_total=totals["Shared_Clean"]+totals["Shared_Dirty"]
+        private_total=totals["Private_Clean"]+totals["Private_Dirty"]
+        if totals["Swap"]>0:
+            alerts.append(f"进程使用了 Swap: {totals['Swap']} kB")
+        if totals["Pss"]>500000:
+            alerts.append(f"实际物理内存占用较高: PSS={totals['Pss']} kB ({totals['Pss']//1024} MB)")
+        return _make_response("process_smaps",
+            data={
+                "pid":pid,"process_name":proc_name,
+                "rss_kb":totals["Rss"],"pss_kb":totals["Pss"],
+                "shared_kb":shared_total,"private_kb":private_total,
+                "anonymous_kb":totals["Anonymous"],"swap_kb":totals["Swap"],
+                "referenced_kb":totals["Referenced"],
+            },
+            summary={
+                "pid":pid,"process":proc_name,
+                "rss_mb":round(totals["Rss"]/1024,1),
+                "pss_mb":round(totals["Pss"]/1024,1),
+                "swap_kb":totals["Swap"],
+                "alerts":alerts,
+            },
+        )
+    except FileNotFoundError:
+        return _error_response("process_smaps",f"进程 PID={pid} 不存在")
+    except PermissionError:
+        return _error_response("process_smaps",f"无权限读取 PID={pid} 的内存映射 (需要 root)")
+    except Exception as e:
+        return _error_response("process_smaps",e)

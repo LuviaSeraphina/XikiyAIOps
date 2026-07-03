@@ -476,8 +476,12 @@ _JOURNAL_LINE_RE=re.compile(
 )
 
 
+"""
+方法: _parse_journal_entries(lines, keyword), 解析 journalctl -o short-iso 输出行, 可选关键词过滤
+
+"""
+
 def _parse_journal_entries(lines, keyword=""):
-    """解析 journalctl -o short-iso 输出行, 可选关键词过滤"""
     entries=[]
     for line in lines:
         if not line.strip():
@@ -579,3 +583,100 @@ def system_journal_tail(lines=20, priority="err"):
         )
     except Exception as e:
         return _error_response("system_journal_tail", e)
+
+
+# ── vmstat_stats: 虚拟内存/IO/上下文切换/进程统计 ──
+
+def vmstat_stats(intervals=1,count=3):
+    """
+    方法: vmstat_stats(intervals=1,count=3), 虚拟内存统计 (vmstat): CPU/IO/swap/上下文切换/中断采样
+
+    """
+    try:
+        intervals=int(max(1,min(intervals,5)))
+        count=int(max(1,min(count,10)))
+        timeout_s=intervals*count+5
+        result=_run_command(["vmstat",str(intervals),str(count)],timeout=timeout_s)
+        if not _cmd_ok(result):
+            return _error_response("vmstat_stats","vmstat 执行失败")
+        stdout=result.get("stdout","")
+        lines=[l for l in stdout.strip().split("\n") if l.strip()]
+        #vmstat 输出: 第1行=header, 第2行=平均, 第3行起=采样
+        #字段: r b swpd free buff cache si so bi bo in cs us sy id wa st
+        samples=[]
+        for line in lines[2:]:
+            parts=line.split()
+            if len(parts)>=17:
+                samples.append({
+                    "procs_r":int(parts[0]),"procs_b":int(parts[1]),
+                    "swpd_kb":int(parts[2]),"free_kb":int(parts[3]),
+                    "buff_kb":int(parts[4]),"cache_kb":int(parts[5]),
+                    "si":int(parts[6]),"so":int(parts[7]),
+                    "bi":int(parts[8]),"bo":int(parts[9]),
+                    "in":int(parts[10]),"cs":int(parts[11]),
+                    "us":int(parts[12]),"sy":int(parts[13]),
+                    "id":int(parts[14]),"wa":int(parts[15]),
+                    "st":int(parts[16]) if len(parts)>16 else 0,
+                })
+        alerts=[]
+        if samples:
+            last=samples[-1]
+            if last["wa"]>10:
+                alerts.append(f"IO等待偏高: wa={last['wa']}%")
+            if last["so"]>0:
+                alerts.append(f"Swap写出活跃: so={last['so']} KB/s")
+            if last["cs"]>50000:
+                alerts.append(f"上下文切换频繁: cs={last['cs']}/s")
+            if last["procs_b"]>5:
+                alerts.append(f"阻塞进程多: b={last['procs_b']}")
+            if last["id"]<10:
+                alerts.append(f"CPU空闲率低: id={last['id']}%")
+        return _make_response("vmstat_stats",
+            data={"samples":samples,"sample_count":len(samples),"interval":intervals},
+            summary={
+                "samples":len(samples),
+                "cpu_idle":samples[-1]["id"] if samples else -1,
+                "iowait":samples[-1]["wa"] if samples else -1,
+                "context_switch":samples[-1]["cs"] if samples else 0,
+                "swap_in":samples[-1]["si"] if samples else 0,
+                "swap_out":samples[-1]["so"] if samples else 0,
+                "alerts":alerts,
+            },
+        )
+    except Exception as e:
+        return _error_response("vmstat_stats",e)
+
+
+# ── system_timers: systemd 定时器列表 ──
+
+def system_timers():
+    """
+    方法: system_timers(), 列出 systemd 定时器: 名称/下次触发/上次触发/关联服务
+
+    """
+    try:
+        result=_run_command(["systemctl","list-timers","--all","--no-pager","--no-legend"],timeout=10)
+        if not _cmd_ok(result):
+            return _error_response("system_timers","systemctl list-timers 执行失败")
+        stdout=result.get("stdout","")
+        timers=[]
+        for line in stdout.strip().split("\n"):
+            line=line.strip()
+            if not line or line.startswith("-"):
+                continue
+            #用正则提取 .timer 和 .service unit 名
+            unit_match=re.search(r'(\S+\.timer)\s+(\S+\.service)',line)
+            if unit_match:
+                timers.append({"unit":unit_match.group(1),"activates":unit_match.group(2)})
+            else:
+                if line.endswith(".service"):
+                    continue
+                unit_match2=re.search(r'(\S+\.timer)',line)
+                if unit_match2:
+                    timers.append({"unit":unit_match2.group(1),"activates":""})
+        return _make_response("system_timers",
+            data={"timers":timers},
+            summary={"total":len(timers),"units":[t["unit"] for t in timers[:10]]},
+        )
+    except Exception as e:
+        return _error_response("system_timers",e)
