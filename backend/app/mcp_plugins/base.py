@@ -509,6 +509,14 @@ def _auto_register_all(reg):
         },
     ))
 
+    #---- 威胁狩猎 Agent (v0.4) ----
+    reg.register(MCPTool(
+        name="threat_hunt",
+        description="威胁狩猎 — 基于 MITRE ATT&CK 框架编排所有安全工具, 关联分析生成攻击链报告。一键扫描 SUID 后门/crontab 持久化/SSH 暴力破解/内核模块注入/异常用户等威胁",
+        handler=_safe_import("app.mcp_plugins.threat_hunt_plugin", "threat_hunt"),
+        risk_level=RiskLevel.READ_ONLY,
+    ))
+
 
 #方法: 安全导入插件模块和函数, 失败返回占位函数
 def _safe_import(module_path, func_name):
