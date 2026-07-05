@@ -106,6 +106,9 @@ app.include_router(audit_router, prefix="/api/audit", tags=["audit"])
 from app.api.alerts import router as alerts_router
 app.include_router(alerts_router, prefix="/api/alerts", tags=["alerts"])
 
+from app.api.system import router as system_router
+app.include_router(system_router, prefix="/api/system", tags=["system"])
+
 #挂载前端静态文件 (dist/ 存在时)
 _FRONTEND_DIST=os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")
 if os.path.isdir(_FRONTEND_DIST) and os.path.isfile(os.path.join(_FRONTEND_DIST, "index.html")):

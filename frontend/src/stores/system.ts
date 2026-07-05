@@ -1,16 +1,16 @@
 // ============================================================
-// 系统仪表盘 Store — 基于 MCP 工具调用结果
+// 系统仪表盘 Store — 双数据源: API 直连 + MCP 工具结果兜底
 //
-// 数据来源: 最新对话中 MCP tool_result 的解析数据
-// 后端无独立 dashboard API，系统状态通过 chat + MCP 工具获取
-// 此 Store 从 Chat Store 的 lastHealthScore + tool 结果派生
+// 数据来源:
+//   1. (主) GET /api/system/snapshot — 仪表盘专属实时 API
+//   2. (兜底) 最新对话中 MCP tool_result 的解析数据
 // ============================================================
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useChatStore } from './chat'
 
-/** 系统概览快照（从 MCP 工具结果提取） */
+/** 系统概览快照 */
 export interface SecurityAlert {
   tool: string
   title: string
@@ -24,6 +24,7 @@ export interface SystemSnapshot {
   kernel: string
   bootTime: string
   cpuCores: number
+  cpuPercent: number
   load1m: number
   load5m: number
   load15m: number
@@ -46,25 +47,71 @@ export const useSystemStore = defineStore('system', () => {
   // ====== 状态 ======
   const snapshot = ref<Partial<SystemSnapshot>>({})
   const lastUpdate = ref<number>(0)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
 
   // ====== 计算属性 ======
   const hasData = computed(() => Object.keys(snapshot.value).length > 0)
 
-  // ====== 从 Chat Store 派生 ======
-  /**
-   * 尝试从最新对话的 MCP 工具结果中提取系统指标
-   * 由 Dashboard 页面在 onMounted 时调用
-   */
+  // ====== API 直连: 实时获取系统快照 ======
+  async function fetchSnapshot(): Promise<void> {
+    loading.value=true
+    error.value=null
+    try {
+      const resp=await fetch('/api/system/snapshot')
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+      const json=await resp.json()
+      if (json.code!==0) throw new Error(json.message||'API error')
+      const d=json.data
+
+      const snap: Partial<SystemSnapshot>={
+        hostname: d.hostname,
+        os: d.os,
+        kernel: d.kernel,
+        bootTime: d.boot_time,
+        cpuCores: d.cpu.cores_logical,
+        cpuPercent: d.cpu.percent,
+        load1m: d.cpu.load_1m,
+        load5m: d.cpu.load_5m,
+        load15m: d.cpu.load_15m,
+        memoryTotalGb: d.memory.total_gb,
+        memoryUsedGb: d.memory.used_gb,
+        memoryPercent: d.memory.percent,
+        swapTotalGb: d.memory.swap_total_gb,
+        swapUsedGb: d.memory.swap_used_gb,
+        swapPercent: d.memory.swap_percent,
+        diskRootPercent: d.disk.percent,
+        diskRootUsedGb: d.disk.used_gb,
+        diskRootTotalGb: d.disk.total_gb,
+        tcpEstablished: d.network.connections,
+        listeningPorts: 0,
+        authFailures: 0,
+      }
+      snapshot.value=snap
+      lastUpdate.value=Date.now()
+    } catch (e: unknown) {
+      const msg=e instanceof Error ? e.message : String(e)
+      error.value=msg
+      //API 失败时尝试从 chat 消息提取
+      extractFromChat()
+    } finally {
+      loading.value=false
+    }
+  }
+
+  // ====== 从 Chat Store 派生（兜底） ======
   function extractFromChat() {
     const chatStore = useChatStore()
     const msgs = chatStore.messages
     if (msgs.length === 0) {
-      snapshot.value = {}
-      lastUpdate.value = Date.now()
+      if (Object.keys(snapshot.value).length===0) {
+        snapshot.value={}
+        lastUpdate.value=Date.now()
+      }
       return
     }
 
-    const snap: Partial<SystemSnapshot> = {}
+    const snap: Partial<SystemSnapshot> = { ...snapshot.value }
     const alerts: SecurityAlert[] = []
 
     const pushAlert = (tool: string, title: string, detail: string, severity: SecurityAlert['severity']) => {
@@ -172,5 +219,5 @@ export const useSystemStore = defineStore('system', () => {
     }
   }
 
-  return { snapshot, lastUpdate, hasData, extractFromChat }
+  return { snapshot, lastUpdate, hasData, loading, error, fetchSnapshot, extractFromChat }
 })

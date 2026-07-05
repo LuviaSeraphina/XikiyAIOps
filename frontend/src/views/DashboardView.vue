@@ -27,11 +27,11 @@
           </svg>
         </div>
         <div class="stat-body">
-          <span class="stat-value">{{ snap.cpuCores }} 核</span>
-          <span class="stat-label">CPU</span>
+          <span class="stat-value" :class="cpuStatusClass">{{ snap.cpuPercent?.toFixed(0) ?? '--' }}%</span>
+          <span class="stat-label">CPU 使用率</span>
         </div>
         <div class="stat-spark">
-          <span class="stat-detail" v-if="snap.load1m !== undefined">Load {{ snap.load1m?.toFixed(1) }}</span>
+          <span class="stat-detail">{{ snap.cpuCores }} 核 | Load {{ snap.load1m?.toFixed(1) }}</span>
         </div>
       </div>
 
@@ -108,10 +108,6 @@
           <span class="overview-label">Swap</span>
           <span class="overview-value">{{ snap.swapUsedGb?.toFixed(1) }} / {{ snap.swapTotalGb?.toFixed(1) }} GB ({{ snap.swapPercent?.toFixed(0) }}%)</span>
         </div>
-        <div class="overview-item" v-if="snap.authFailures !== undefined">
-          <span class="overview-label">认证失败</span>
-          <span class="overview-value" :class="{ 'text-danger': snap.authFailures > 10 }">{{ snap.authFailures }} 次</span>
-        </div>
       </div>
 
     </div>
@@ -119,8 +115,16 @@
     <!-- ====== 安全告警面板 ====== -->
     <SecurityAlertsPanel v-if="securityAlerts.length > 0" />
 
+    <!-- ====== 加载中 ====== -->
+    <div v-if="systemStore.loading && !hasData" class="empty-dashboard">
+      <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.35" class="spinning">
+        <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+      </svg>
+      <h3>正在获取系统数据...</h3>
+    </div>
+
     <!-- ====== 空状态 ====== -->
-    <div v-if="!hasData" class="empty-dashboard">
+    <div v-else-if="!hasData" class="empty-dashboard">
       <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.35">
         <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
         <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
@@ -151,7 +155,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount } from 'vue'
 import { useSystemStore } from '@/stores/system'
 import { useChatStore } from '@/stores/chat'
 import SecurityAlertsPanel from '@/components/dashboard/SecurityAlertsPanel.vue'
@@ -164,6 +168,23 @@ const hasData = computed(() => systemStore.hasData)
 const healthScore = computed(() => chatStore.lastHealthScore)
 const securityAlerts = computed(() => snap.value.securityAlerts ?? [])
 
+//自动刷新间隔 (10秒)
+const REFRESH_INTERVAL=10000
+let refreshTimer: ReturnType<typeof setInterval> | null=null
+
+onMounted(() => {
+  systemStore.fetchSnapshot()
+  //每 10 秒自动刷新
+  refreshTimer=setInterval(() => systemStore.fetchSnapshot(), REFRESH_INTERVAL)
+})
+
+onBeforeUnmount(() => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer=null
+  }
+})
+
 // 状态颜色
 function statusClass(pct: number): string {
   if (pct >= 90) return 'danger'
@@ -172,6 +193,10 @@ function statusClass(pct: number): string {
 }
 const memStatusClass = computed(() => {
   const v = snap.value.memoryPercent
+  return v !== undefined ? statusClass(v) : ''
+})
+const cpuStatusClass = computed(() => {
+  const v = snap.value.cpuPercent
   return v !== undefined ? statusClass(v) : ''
 })
 const diskStatusClass = computed(() => {
@@ -185,12 +210,6 @@ const gradeClass = computed(() => {
   if (g === 'C') return 'warning'
   return 'danger'
 })
-
-watch(
-  () => [chatStore.currentSessionId, chatStore.messages],
-  () => systemStore.extractFromChat(),
-  { immediate: true, deep: true },
-)
 </script>
 
 <style scoped>
@@ -324,6 +343,13 @@ watch(
   text-align: center;
   padding: 80px 20px;
   color: var(--text-secondary);
+}
+.empty-dashboard .spinning {
+  animation: spin 2s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 .empty-dashboard h3 {
   margin: 16px 0 8px;
