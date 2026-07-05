@@ -105,14 +105,6 @@ def check_user_input(user_input):
     if cat == IntentCategory.JAILBREAK:
         return False, "安全拦截: 检测到越狱尝试 (威胁评分 {:.1f})".format(score), "jailbreak"
 
-    if cat == IntentCategory.DANGEROUS_ACTION:
-        detail=hits[0] if hits else "高危操作"
-        return False, "安全拦截: {} (威胁评分 {:.1f})".format(detail, score), "dangerous"
-
-    injection_hits=detect_injection(user_input)
-    if injection_hits:
-        return False, "安全拦截: 检测到注入攻击 — {}".format(injection_hits[0]), "injection"
-
     if cat == IntentCategory.OPS_ACTION:
         return True, "OPS_CONFIRM", "restricted"
 

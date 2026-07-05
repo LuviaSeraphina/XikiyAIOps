@@ -318,7 +318,7 @@ def is_safe(user_input, intent_cat=None):
     if injection_hits:
         return False, injection_hits
 
-    if intent_cat is not None and intent_cat in (IntentCategory.JAILBREAK, IntentCategory.DANGEROUS_ACTION):
+    if intent_cat is not None and intent_cat == IntentCategory.JAILBREAK:
         return False, [intent_cat.value]
 
     return True, []
@@ -332,7 +332,7 @@ Returns: (is_safe: bool, reason: str)
 def safe_pipeline(user_input, llm_output=None):
     # 第一道: 意图分类 (v2.0 含威胁评分)
     intent_cat, intent_hits, _ = classify_intent(user_input)
-    if intent_cat in (IntentCategory.JAILBREAK, IntentCategory.DANGEROUS_ACTION):
+    if intent_cat == IntentCategory.JAILBREAK:
         return False, "意图拦截: {}".format(intent_hits)
 
     # 第二道: 注入检测 (v2.0 六层)

@@ -19,7 +19,6 @@ _logger=logging.getLogger("xikiy_aiops.orchestrator")
 INTENT_ROUTING={
     "SAFE_QUERY":       ["perception"],                    #CPU/内存/磁盘 → 感知
     "OPS_ACTION":       ["perception","execution"],        #重启/杀进程 → 感知+执行
-    "DANGEROUS_ACTION": [],                                #危险操作 → 被Security拦截, 不路由
     "JAILBREAK":        [],                                #越狱 → 被Security拦截
     "UNKNOWN":          ["perception"],                    #兜底 → 感知
 }
