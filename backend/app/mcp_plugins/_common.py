@@ -257,6 +257,13 @@ _ALLOWED_COMMANDS={
     "ionice","usermod","useradd","chpasswd","kill","rmmod","echo","tee","chattr",
 }
 
+#需要 sudo 提升权限的命令 — run_command 在非 root 下自动加 sudo -n
+_SUDO_COMMANDS={
+    "truncate","logrotate","systemctl","sysctl","kill",
+    "renice","ionice","iptables","nft","useradd","usermod",
+    "chpasswd","apt","dnf","yum","tee","chattr",
+}
+
 # 高危参数模式 — 分三类匹配, 避免子串误伤 (如 rm 匹配 format)
 #   词边界: alphabetic 模式使用 \b 边界, 只匹配独立单词
 #   精确:   flag 模式匹配完整参数
@@ -296,8 +303,10 @@ _logger=logging.getLogger("xikiy_aiops.mcp")
 """
 方法: run_command(), 安全执行固定参数命令
 
+v3: 最小权限代理 — 非 root 用户对 _SUDO_COMMANDS 自动加 sudo -n 前缀
+    等价于每个写操作 handler 调用 run_command 时自动通过 sudo 白名单兜底
+
 v2: 返回结构化 dict {stdout, stderr, exit_code, duration_ms}
-    而非原始字符串, 以便上层采集真实执行数据用于异常回溯。
 
 成功时 stdout 为命令输出, stderr 可能为空或有 warning。
 执行失败时 stdout 为空字符串, stderr 包含错误信息。
@@ -308,6 +317,12 @@ def run_command(cmd, timeout=10):
     if not safe:
         _logger.warning(f"命令拦截: {' '.join(cmd[:3])} — {reason}")
         return {"stdout":"","stderr":reason,"exit_code":-1,"duration_ms":0,"blocked":True}
+
+    #最小权限代理: 非 root 用户对需要特权的命令自动加 sudo -n
+    _euid=os.geteuid()
+    if _euid!=0 and cmd and cmd[0] in _SUDO_COMMANDS:
+        if os.path.exists("/usr/bin/sudo"):
+            cmd=["sudo","-n"]+list(cmd)
 
     start=time.monotonic()
     try:

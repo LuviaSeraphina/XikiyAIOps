@@ -390,6 +390,46 @@ log_ok "数据库就绪"
 echo ""
 _TOOLS=$("$VENV_PYTHON" -c "from app.mcp_plugins.base import registry; print(registry.count)" 2>/dev/null || echo "0")
 echo -e "  MCP Tool: ${GREEN}$_TOOLS${NC} 个  |  LLM: ${GREEN}$_PROVIDER / $_MODEL${NC}"
+
+# ============================================================
+# Step 6: 最小权限代理
+# ============================================================
+echo -e "\n${BOLD}▶ Step 6/6: 最小权限代理${NC}"
+
+#创建 xikiy 系统用户 (无登录权限)
+if ! id xikiy &>/dev/null; then
+  sudo useradd -r -d /opt/xikiy-aiops -s /sbin/nologin xikiy
+  log_ok "用户 xikiy 已创建"
+else
+  log_info "用户 xikiy 已存在"
+fi
+
+#配置 sudoers 白名单
+_SUDOERS_SRC="$PROJECT_DIR/config/sudoers.d/xikiy-aiops"
+if [ -f "$_SUDOERS_SRC" ]; then
+  sudo install -m 440 "$_SUDOERS_SRC" /etc/sudoers.d/xikiy-aiops
+  log_ok "sudoers 已配置 (NOPASSWD 白名单)"
+else
+  log_warn "未找到 sudoers 配置文件: $_SUDOERS_SRC"
+fi
+
+#文件权限: 确保 xikiy 可访问项目文件
+_PROD_DIR="/opt/xikiy-aiops"
+if [ -d "$_PROD_DIR" ]; then
+  sudo chown -R xikiy:xikiy "$_PROD_DIR" 2>/dev/null || true
+fi
+if [ -d "/var/backups/xikiy" ]; then
+  sudo chown -R xikiy:xikiy /var/backups/xikiy 2>/dev/null || true
+fi
+
+#systemd service: User=xikiy
+_SVC_FILE="/etc/systemd/system/xikiy-aiops.service"
+if [ -f "$_SVC_FILE" ]; then
+  sudo sed -i 's/^User=.*/User=xikiy/' "$_SVC_FILE"
+  sudo systemctl daemon-reload 2>/dev/null || true
+  log_ok "systemd service User=xikiy"
+fi
+
 echo ""
 echo -e "  ${BOLD}${GREEN}✅ 部署完成${NC}"
 echo -e "  启动: ${BOLD}bash scripts/start.sh${NC}"
