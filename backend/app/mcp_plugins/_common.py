@@ -1,5 +1,14 @@
 """
 MCP 插件共享工具 — 所有插件复用
+
+导出:
+- make_response / error_response — 统一响应结构
+- run_command / _cmd_ok / _is_safe_command — 带白名单的安全命令执行
+- sanitize_response — 响应脱敏
+
+命令白名单:
+- _ALLOWED_COMMANDS: 只读感知 + 文件识别 + 运维写操作 (restricted/dangerous)
+- run_command 自动校验命令是否在白名单内, 拒绝高危参数 (rm/mkfs/dd 等)
 """
 import logging
 import os
@@ -234,11 +243,18 @@ def _mask_home_path(text:str)->str:
 
 # 允许执行的命令白名单 (只有这些命令可通过 run_command 执行)
 _ALLOWED_COMMANDS={
+    # ── 只读感知 ──
     "ss","ip","who","find","lsmod","systemctl","vmstat",
     "journalctl","dmesg","cat","crontab","sysctl","ping",
     "docker","podman","which","dnf","yum","apt",
     "iptables","nft","getenforce","aa-status","dig","getent",
     "dmidecode","groups",
+    # ── 文件/系统识别 ──
+    "file","lsof","stat","wc","head","tail","du","df",
+    "rpm","dpkg","diff","systemd-resolve","resolvectl",
+    # ── 写操作 (restricted/dangerous 工具专用) ──
+    "truncate","logrotate","touch","mkdir","cp","mv","renice",
+    "ionice","usermod","useradd","chpasswd","kill","rmmod","echo","tee","chattr",
 }
 
 # 高危参数模式 — 分三类匹配, 避免子串误伤 (如 rm 匹配 format)

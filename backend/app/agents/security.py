@@ -1,7 +1,11 @@
 """
 SecurityAgent — 输入审查、工具审批、事后审计
 
-不调MCP Tool, 纯逻辑守门员
+双层安全审查:
+  Layer 1 — intent_filter 正则 (越狱检测, 微秒级)
+  Layer 2 — LLM 语义审查 (捕获正则遗漏的越狱/高危/注入意图)
+
+不调 MCP Tool, 纯逻辑守门员
 """
 import json
 import logging

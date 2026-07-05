@@ -1,24 +1,33 @@
 """
-MCP 进程巡检工具
+MCP 进程巡检与控制工具
 
-功能：
-- 获取系统当前进程列表
-- 支持按进程状态过滤(running / sleeping / zombie / disk-sleep 等)
-- 支持按 CPU 或内存使用率排序
-- 返回 Top N 进程(默认 10 个，可配置 1~100)
+功能:
+- process_inspect: 按状态/CPU/内存过滤 Top N 进程
+- process_detail: 单进程详细信息
+- process_tree: 进程树 (PID 1 为根)
+- process_zombie_scan: 扫描僵尸进程
+- process_top_cpu/top_memory: 资源占用排行
+- process_kill: 安全终止进程 (SIGTERM/SIGKILL)
+- process_smaps: 内存映射分析 (RSS/PSS/Swap)
+- process_zombie_cleanup: 清理僵尸进程 (SIGCHLD)
+- process_renice: 调整 CPU nice 值
+- process_ionice: 调整 I/O 调度优先级
+- process_io_top: I/O 读写速率 Top N
 
-使用 psutil.process_iter() 遍历进程，返回结构化 dict 列表，
-每次调用前自动预热 CPU 采样，避免首次返回全 0。
-
-用于 MCP Agent 进行系统负载分析、僵尸进程排查、异常进程检测等场景。
-
+使用 psutil.process_iter() 遍历进程, 返回结构化 dict 列表,
+每次调用前自动预热 CPU 采样, 避免首次返回全 0。
 """
 
 import psutil
 import time
 import os
 import signal
-from app.mcp_plugins._common import make_response as _make_response, error_response as _error_response
+from app.mcp_plugins._common import (
+    make_response as _make_response,
+    error_response as _error_response,
+    run_command as _run_command,
+    _cmd_ok,
+)
 
 process_inspect_schema={
     "name": "process_inspect",
@@ -431,3 +440,355 @@ def process_smaps_handler(pid):
         return _error_response("process_smaps",f"无权限读取 PID={pid} 的内存映射 (需要 root)")
     except Exception as e:
         return _error_response("process_smaps",e)
+
+
+# ── 5. process_zombie_cleanup ──
+
+"""
+方法: process_zombie_cleanup(), 清理僵尸进程 — 向其父进程发送 SIGCHLD 信号促其收割子进程
+
+"""
+def process_zombie_cleanup(parent_pid=0):
+    try:
+        if not parent_pid:
+            return _error_response("process_zombie_cleanup", ValueError("参数 parent_pid 不能为空"))
+
+        if not psutil.pid_exists(parent_pid):
+            return _error_response("process_zombie_cleanup", ValueError(f"PID {parent_pid} 不存在"))
+
+        #验证该进程确实有僵尸子进程
+        try:
+            parent_proc=psutil.Process(parent_pid)
+            parent_name=parent_proc.name()
+            children=parent_proc.children()
+            zombies=[c for c in children if c.status()==psutil.STATUS_ZOMBIE]
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+            return _error_response("process_zombie_cleanup", e)
+
+        if not zombies:
+            return _make_response("process_zombie_cleanup",
+                data={"parent_pid":parent_pid,"parent_name":parent_name,"zombie_count":0,"cleaned":False},
+                summary={"info":f"PID {parent_pid} ({parent_name}) 没有僵尸子进程, 无需清理"},
+                risk_level="restricted",
+            )
+
+        zombie_count=len(zombies)
+        zombie_pids=[c.pid for c in zombies]
+
+        #发送 SIGCHLD 信号给父进程
+        try:
+            os.kill(parent_pid, signal.SIGCHLD)
+        except (PermissionError, ProcessLookupError) as e:
+            return _error_response("process_zombie_cleanup", e)
+
+        #等待短暂时间让父进程处理信号
+        time.sleep(0.5)
+
+        #验证僵尸是否已清理
+        remaining=0
+        try:
+            parent_proc=psutil.Process(parent_pid)
+            for c in parent_proc.children():
+                try:
+                    if c.status()==psutil.STATUS_ZOMBIE:
+                        remaining+=1
+                except (psutil.NoSuchProcess, psutil.ZombieProcess):
+                    pass
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+        cleaned=zombie_count - remaining
+
+        return _make_response("process_zombie_cleanup",
+            data={
+                "parent_pid":parent_pid,
+                "parent_name":parent_name,
+                "zombie_pids":zombie_pids,
+                "zombie_count_before":zombie_count,
+                "zombie_count_after":remaining,
+                "cleaned":cleaned,
+                "success":cleaned>0,
+            },
+            summary={
+                "parent_pid":parent_pid,
+                "cleaned":cleaned,
+                "remaining":remaining,
+                "success":cleaned>0,
+            },
+            risk_level="restricted",
+        )
+    except Exception as e:
+        return _error_response("process_zombie_cleanup", e)
+
+
+# ── 6. process_renice ──
+
+"""
+方法: process_renice(), 调整进程 CPU 调度优先级 (nice 值, -20~19)
+
+"""
+def process_renice(pid=0, nice=0):
+    try:
+        if not pid:
+            return _error_response("process_renice", ValueError("参数 pid 不能为空"))
+
+        #nice 范围校验: -20 到 19, 禁止 -20 (最高优先级)
+        if nice<-19 or nice>19:
+            return _make_response("process_renice",
+                data={"pid":pid,"nice":nice,"blocked":True},
+                summary={"error":"nice 值必须在 -19 到 19 之间"},
+                risk_level="restricted",
+            )
+        if nice==-20:
+            return _make_response("process_renice",
+                data={"pid":pid,"nice":nice,"blocked":True},
+                summary={"error":"禁止设置 nice=-20 (最高优先级), 可能影响系统稳定性"},
+                risk_level="restricted",
+            )
+
+        if not psutil.pid_exists(pid):
+            return _error_response("process_renice", ValueError(f"PID {pid} 不存在"))
+
+        try:
+            proc=psutil.Process(pid)
+            proc_name=proc.name()
+            old_nice=proc.nice()
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+            return _error_response("process_renice", e)
+
+        #设置新 nice 值
+        try:
+            proc.nice(nice)
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+            return _error_response("process_renice", e)
+
+        #验证
+        try:
+            new_nice=psutil.Process(pid).nice()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            new_nice="unknown"
+
+        return _make_response("process_renice",
+            data={
+                "pid":pid,
+                "process":proc_name,
+                "old_nice":old_nice,
+                "new_nice":new_nice,
+                "success":new_nice==nice,
+            },
+            summary={
+                "pid":pid,
+                "process":proc_name,
+                "old_nice":old_nice,
+                "new_nice":new_nice,
+                "success":new_nice==nice,
+            },
+            risk_level="restricted",
+        )
+    except Exception as e:
+        return _error_response("process_renice", e)
+
+
+# ── 7. process_ionice ──
+
+#ionice class 映射
+_IONICE_CLASS={"idle":3,"best-effort":2,"realtime":1}
+_IONICE_CLASS_REV={3:"idle",2:"best-effort",1:"realtime",0:"none"}
+
+"""
+方法: process_ionice(), 调整进程 I/O 调度优先级
+
+"""
+def process_ionice(pid=0, ionice_class="idle", ionice_level=4):
+    try:
+        if not pid:
+            return _error_response("process_ionice", ValueError("参数 pid 不能为空"))
+
+        #安全检查: 禁止 realtime (class=1), 可能导致 I/O 饥饿
+        if ionice_class=="realtime" or ionice_class==1:
+            return _make_response("process_ionice",
+                data={"pid":pid,"class":ionice_class,"blocked":True},
+                summary={"error":"禁止设置 ionice class=realtime, 可能导致其他进程 I/O 饥饿"},
+                risk_level="restricted",
+            )
+
+        if ionice_class not in _IONICE_CLASS:
+            return _make_response("process_ionice",
+                data={"pid":pid,"class":ionice_class,"blocked":True},
+                summary={"error":f"不支持的 ionice class: {ionice_class}, 仅允许: idle, best-effort"},
+                risk_level="restricted",
+            )
+
+        #ionice_level 范围: 0-7 (best-effort), idle 忽略此参数
+        if ionice_level<0 or ionice_level>7:
+            ionice_level=4
+
+        if not psutil.pid_exists(pid):
+            return _error_response("process_ionice", ValueError(f"PID {pid} 不存在"))
+
+        try:
+            proc=psutil.Process(pid)
+            proc_name=proc.name()
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+            return _error_response("process_ionice", e)
+
+        #获取当前 ionice
+        try:
+            old_ionice=proc.ionice()
+            old_class=_IONICE_CLASS_REV.get(old_ionice.ioclass, str(old_ionice.ioclass))
+            old_value=old_ionice.value
+        except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
+            old_class="unknown"
+            old_value=0
+
+        #设置新 ionice
+        class_num=_IONICE_CLASS[ionice_class]
+        try:
+            if ionice_class=="idle":
+                proc.ionice(psutil.IOPRIO_CLASS_IDLE)
+            else:
+                proc.ionice(psutil.IOPRIO_CLASS_BE, ionice_level)
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+            return _error_response("process_ionice", e)
+        except AttributeError:
+            #psutil 版本不支持 IOPRIO_CLASS 常量, 回退到 ionice 命令
+            r=_run_command(["ionice","-c",str(class_num),"-n",str(ionice_level),"-p",str(pid)], timeout=5)
+            if not _cmd_ok(r):
+                return _make_response("process_ionice",
+                    data={"pid":pid,"failed":True},
+                    summary={"error":r["stderr"] or "ionice 命令执行失败"},
+                    risk_level="restricted",
+                )
+
+        return _make_response("process_ionice",
+            data={
+                "pid":pid,
+                "process":proc_name,
+                "old_class":old_class,
+                "old_value":old_value,
+                "new_class":ionice_class,
+                "new_value":ionice_level if ionice_class!="idle" else 0,
+                "success":True,
+            },
+            summary={
+                "pid":pid,
+                "process":proc_name,
+                "old_class":old_class,
+                "new_class":ionice_class,
+                "success":True,
+            },
+            risk_level="restricted",
+        )
+    except Exception as e:
+        return _error_response("process_ionice", e)
+
+
+# ── 8. process_io_top ──
+
+"""
+方法: process_io_top(), I/O 读写速率 Top N (读取 /proc/PID/io)
+
+"""
+def process_io_top(top_n=10):
+    try:
+        if top_n<1:
+            top_n=1
+        if top_n>50:
+            top_n=50
+
+        #第一次采样
+        sample1={}
+        for proc in psutil.process_iter(['pid','name','status']):
+            try:
+                io_path=f"/proc/{proc.pid}/io"
+                if not os.path.isfile(io_path):
+                    continue
+                with open(io_path,"r") as f:
+                    data={}
+                    for line in f:
+                        parts=line.split(":")
+                        if len(parts)==2:
+                            key=parts[0].strip()
+                            val=parts[1].strip()
+                            try:
+                                data[key]=int(val)
+                            except ValueError:
+                                pass
+                sample1[proc.pid]={
+                    "name":proc.info['name'],
+                    "read_bytes":data.get("read_bytes",0),
+                    "write_bytes":data.get("write_bytes",0),
+                }
+            except (psutil.NoSuchProcess, psutil.AccessDenied, PermissionError, FileNotFoundError):
+                continue
+
+        #等待 1 秒
+        time.sleep(1)
+
+        #第二次采样, 计算速率
+        results=[]
+        for proc in psutil.process_iter(['pid','name','status']):
+            try:
+                io_path=f"/proc/{proc.pid}/io"
+                if not os.path.isfile(io_path):
+                    continue
+                with open(io_path,"r") as f:
+                    data={}
+                    for line in f:
+                        parts=line.split(":")
+                        if len(parts)==2:
+                            key=parts[0].strip()
+                            val=parts[1].strip()
+                            try:
+                                data[key]=int(val)
+                            except ValueError:
+                                pass
+
+                prev=sample1.get(proc.pid)
+                if not prev:
+                    continue
+
+                read_delta=data.get("read_bytes",0) - prev["read_bytes"]
+                write_delta=data.get("write_bytes",0) - prev["write_bytes"]
+
+                if read_delta<0:
+                    read_delta=0
+                if write_delta<0:
+                    write_delta=0
+
+                total_delta=read_delta + write_delta
+                if total_delta>0:
+                    results.append({
+                        "pid":proc.pid,
+                        "name":proc.info['name'],
+                        "read_bytes_per_sec":read_delta,
+                        "write_bytes_per_sec":write_delta,
+                        "total_bytes_per_sec":total_delta,
+                        "read_mb_per_sec":round(read_delta/1048576, 2),
+                        "write_mb_per_sec":round(write_delta/1048576, 2),
+                    })
+            except (psutil.NoSuchProcess, psutil.AccessDenied, PermissionError, FileNotFoundError):
+                continue
+
+        #排序
+        results.sort(key=lambda x: x["total_bytes_per_sec"], reverse=True)
+        top_results=results[:top_n]
+
+        return _make_response("process_io_top",
+            data={
+                "sample_interval_sec":1,
+                "total_processes_sampled":len(sample1),
+                "processes_with_io":len(results),
+                "top_n":len(top_results),
+                "processes":top_results,
+            },
+            summary={
+                "sampled":len(sample1),
+                "with_io":len(results),
+                "top_process":top_results[0]["name"] if top_results else "none",
+                "top_io_mb":round(top_results[0]["total_bytes_per_sec"]/1048576, 2) if top_results else 0,
+            },
+            risk_level="read_only",
+        )
+    except Exception as e:
+        return _error_response("process_io_top", e)

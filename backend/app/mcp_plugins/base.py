@@ -1,11 +1,30 @@
 """
 MCP 插件注册中心 — 统一管理所有 Tool 的注册、发现与调用
 
+当前注册工具: 82 个 (59 只读 + 23 写操作)
+
 设计原则:
 1. 每个 Tool 封装原子运维操作, LLM 只能调用 Tool, 不直接接触 Shell
 2. 参数通过 JSON Schema 校验, 类型/范围/枚举可控
 3. 每个 Tool 声明 risk_level, 调用前自动权限预检
 4. 所有 Tool 返回统一结构: {tool, timestamp, risk_level, data, summary}
+
+插件分组:
+- process_plugin — 进程巡检/控制 (12 个)
+- disk_plugin — 磁盘/IO/大文件 (4 个)
+- memory_plugin — 内存画像 (5 个)
+- network_plugin — 网络诊断 (7 个)
+- security_plugin — 安全审计 (12 个)
+- system_plugin — 系统概览/日志 (9 个)
+- container_plugin — Docker/Podman (3 个)
+- health_config_plugin — 健康评分配置 (2 个)
+- rag_plugin — RAG 知识库 (2 个)
+- threat_hunt_plugin — 威胁狩猎 (1 个)
+- ops_plugin — 运维写操作 (5 个)
+- service_plugin — 服务管理 (1 个)
+- config_plugin — 配置管理 (4 个)
+- network_security_ops — 防火墙/网络操作 (3 个)
+- user_pkg_plugin — 用户/包管理 (6 个)
 """
 from enum import Enum
 import importlib
@@ -515,6 +534,245 @@ def _auto_register_all(reg):
         description="威胁狩猎 — 基于 MITRE ATT&CK 框架编排所有安全工具, 关联分析生成攻击链报告。一键扫描 SUID 后门/crontab 持久化/SSH 暴力破解/内核模块注入/异常用户等威胁",
         handler=_safe_import("app.mcp_plugins.threat_hunt_plugin", "threat_hunt"),
         risk_level=RiskLevel.READ_ONLY,
+    ))
+
+    #---- 运维操作工具 (v0.5) ----
+    reg.register(MCPTool(
+        name="file_identify",
+        description="文件识别 — 类型/MIME/大小/修改时间/被谁打开/是否关键文件(数据库/WAL/锁文件)。判断文件能否安全清理时使用",
+        handler=_safe_import("app.mcp_plugins.ops_plugin", "file_identify"),
+        risk_level=RiskLevel.READ_ONLY,
+        parameters={
+            "path": {"type": "string", "description": "文件绝对路径"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="file_read",
+        description="安全读取文件内容 — 路径白名单(/etc /var/log /proc /sys /tmp) + 行数限制, 超出截断",
+        handler=_safe_import("app.mcp_plugins.ops_plugin", "file_read"),
+        risk_level=RiskLevel.READ_ONLY,
+        parameters={
+            "path": {"type": "string", "description": "文件绝对路径"},
+            "max_lines": {"type": "integer", "default": 200, "minimum": 1, "maximum": 1000, "description": "最大读取行数"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="file_truncate",
+        description="安全截断大日志 — truncate -s 0 保留 inode, 内置安全检查拒绝数据库/WAL/锁文件",
+        handler=_safe_import("app.mcp_plugins.ops_plugin", "file_truncate"),
+        risk_level=RiskLevel.RESTRICTED,
+        parameters={
+            "path": {"type": "string", "description": "要截断的文件绝对路径"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="disk_cleanup",
+        description="一键清理系统垃圾 — journalctl vacuum(保留3天) + apt/dnf缓存 + /tmp旧文件(>7天) + core dump",
+        handler=_safe_import("app.mcp_plugins.ops_plugin", "disk_cleanup"),
+        risk_level=RiskLevel.RESTRICTED,
+        parameters={
+            "cleanup_journal": {"type": "boolean", "default": True, "description": "是否清理旧 journal"},
+            "cleanup_pkg_cache": {"type": "boolean", "default": True, "description": "是否清理包缓存"},
+            "cleanup_tmp": {"type": "boolean", "default": True, "description": "是否清理 /tmp 旧文件"},
+            "cleanup_core": {"type": "boolean", "default": True, "description": "是否清理 core dump"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="logrotate_force",
+        description="强制日志轮转 — 自动查找 logrotate 配置或生成临时配置, 保留 3 份 + 压缩",
+        handler=_safe_import("app.mcp_plugins.ops_plugin", "logrotate_force"),
+        risk_level=RiskLevel.RESTRICTED,
+        parameters={
+            "path": {"type": "string", "description": "要轮转的日志文件绝对路径"},
+        },
+    ))
+
+    #---- 服务管理 (v0.5) ----
+    reg.register(MCPTool(
+        name="service_control",
+        description="控制系统服务 — start/stop/restart/reload/enable/disable。内置安全护栏禁止操作 sshd/auditd/journald 等关键服务",
+        handler=_safe_import("app.mcp_plugins.service_plugin", "service_control"),
+        risk_level=RiskLevel.RESTRICTED,
+        parameters={
+            "service": {"type": "string", "description": "systemd 服务名 (如 nginx, redis-server)"},
+            "action": {"type": "string", "enum": ["start","stop","restart","reload","enable","disable"], "description": "操作类型"},
+        },
+    ))
+
+    #---- 配置管理 (v0.5) ----
+    reg.register(MCPTool(
+        name="config_diff",
+        description="配置对比 — 当前配置 vs 包默认配置(rpm -V/dpkg -V) 或备份的差异。用于检测配置漂移",
+        handler=_safe_import("app.mcp_plugins.config_plugin", "config_diff"),
+        risk_level=RiskLevel.READ_ONLY,
+        parameters={
+            "path": {"type": "string", "description": "配置文件绝对路径"},
+            "compare_to": {"type": "string", "default": "", "description": "对比目标文件路径 (可选, 不指定则自动查找包默认/备份)"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="config_backup",
+        description="配置备份 — 备份到 /var/backups/xikiy/{timestamp}/, 记录原始路径和元数据",
+        handler=_safe_import("app.mcp_plugins.config_plugin", "config_backup"),
+        risk_level=RiskLevel.RESTRICTED,
+        parameters={
+            "path": {"type": "string", "description": "要备份的文件绝对路径"},
+            "tag": {"type": "string", "default": "", "description": "备份标签 (可选, 如 before_update)"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="config_restore",
+        description="配置恢复 — 从备份恢复配置文件, 恢复前自动再备份当前版本 (防回滚丢失)",
+        handler=_safe_import("app.mcp_plugins.config_plugin", "config_restore"),
+        risk_level=RiskLevel.RESTRICTED,
+        parameters={
+            "backup_path": {"type": "string", "description": "备份文件的绝对路径"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="sysctl_set",
+        description="设置内核参数 — 仅允许白名单 key (vm.swappiness/fs.file-max/net.ipv4.*等 28 项), 记录修改前后的值",
+        handler=_safe_import("app.mcp_plugins.config_plugin", "sysctl_set"),
+        risk_level=RiskLevel.RESTRICTED,
+        parameters={
+            "key": {"type": "string", "description": "sysctl 参数名 (如 vm.swappiness)"},
+            "value": {"type": "string", "description": "参数值"},
+        },
+    ))
+
+    #---- 进程控制扩展 (v0.5) ----
+    reg.register(MCPTool(
+        name="process_zombie_cleanup",
+        description="清理僵尸进程 — 向其父进程发送 SIGCHLD 信号, 促其收割已退出的子进程",
+        handler=_safe_import("app.mcp_plugins.process_plugin", "process_zombie_cleanup"),
+        risk_level=RiskLevel.RESTRICTED,
+        parameters={
+            "parent_pid": {"type": "integer", "description": "僵尸进程的父进程 PID"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="process_renice",
+        description="调整进程 CPU 调度优先级 — nice 值 -19~19, 禁止 -20 (最高优先级)",
+        handler=_safe_import("app.mcp_plugins.process_plugin", "process_renice"),
+        risk_level=RiskLevel.RESTRICTED,
+        parameters={
+            "pid": {"type": "integer", "description": "目标进程 PID"},
+            "nice": {"type": "integer", "description": "nice 值 (-19 到 19, 越小优先级越高)"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="process_ionice",
+        description="调整进程 I/O 调度优先级 — class: idle/best-effort, 禁止 realtime",
+        handler=_safe_import("app.mcp_plugins.process_plugin", "process_ionice"),
+        risk_level=RiskLevel.RESTRICTED,
+        parameters={
+            "pid": {"type": "integer", "description": "目标进程 PID"},
+            "ionice_class": {"type": "string", "default": "idle", "enum": ["idle","best-effort"], "description": "I/O 调度类"},
+            "ionice_level": {"type": "integer", "default": 4, "minimum": 0, "maximum": 7, "description": "优先级 (0最高, 7最低, 仅 best-effort 有效)"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="process_io_top",
+        description="I/O 读写速率 Top N — 读取 /proc/PID/io, 1 秒采样间隔, 返回读写速率排名",
+        handler=_safe_import("app.mcp_plugins.process_plugin", "process_io_top"),
+        risk_level=RiskLevel.READ_ONLY,
+        parameters={
+            "top_n": {"type": "integer", "default": 10, "minimum": 1, "maximum": 50, "description": "返回进程数量"},
+        },
+    ))
+
+    #---- 网络安全操作 (v0.5) ----
+    reg.register(MCPTool(
+        name="firewall_rule_add",
+        description="添加防火墙规则 — 自动检测 iptables/nft, 操作前自动备份当前规则。禁止 -F/-X/-P ACCEPT",
+        handler=_safe_import("app.mcp_plugins.network_security_ops", "firewall_rule_add"),
+        risk_level=RiskLevel.DANGEROUS,
+        parameters={
+            "chain": {"type": "string", "description": "链名 (INPUT/OUTPUT/FORWARD)"},
+            "protocol": {"type": "string", "enum": ["tcp","udp","icmp"], "description": "协议"},
+            "port": {"type": "integer", "description": "端口号 (icmp 时可省略)"},
+            "source": {"type": "string", "default": "", "description": "源 IP/CIDR (可选)"},
+            "destination": {"type": "string", "default": "", "description": "目标 IP/CIDR (可选)"},
+            "action": {"type": "string", "default": "ACCEPT", "enum": ["ACCEPT","DROP","REJECT","LOG"], "description": "动作"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="firewall_rule_del",
+        description="删除防火墙规则 — 自动检测 iptables/nft, 操作前自动备份当前规则",
+        handler=_safe_import("app.mcp_plugins.network_security_ops", "firewall_rule_del"),
+        risk_level=RiskLevel.DANGEROUS,
+        parameters={
+            "chain": {"type": "string", "description": "链名 (INPUT/OUTPUT/FORWARD)"},
+            "protocol": {"type": "string", "enum": ["tcp","udp","icmp"], "description": "协议"},
+            "port": {"type": "integer", "description": "端口号 (icmp 时可省略)"},
+            "source": {"type": "string", "default": "", "description": "源 IP/CIDR (可选)"},
+            "destination": {"type": "string", "default": "", "description": "目标 IP/CIDR (可选)"},
+            "action": {"type": "string", "default": "ACCEPT", "enum": ["ACCEPT","DROP","REJECT","LOG"], "description": "动作"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="dns_flush",
+        description="刷新 DNS 缓存 — 自动检测 systemd-resolve/resolvectl/nscd 并执行",
+        handler=_safe_import("app.mcp_plugins.network_security_ops", "dns_flush"),
+        risk_level=RiskLevel.RESTRICTED,
+    ))
+
+    #---- 用户/包管理 (v0.5) ----
+    reg.register(MCPTool(
+        name="user_create",
+        description="创建用户 — 可选加入组、指定 shell。禁止创建已存在用户, 用户名格式严格校验",
+        handler=_safe_import("app.mcp_plugins.user_pkg_plugin", "user_create"),
+        risk_level=RiskLevel.DANGEROUS,
+        parameters={
+            "username": {"type": "string", "pattern": "^[a-zA-Z_][a-zA-Z0-9._-]{0,31}$", "description": "用户名 (字母/数字/._-, 不以数字开头)"},
+            "groups": {"type": "string", "default": "", "description": "附加组, 逗号分隔 (如 sudo,docker)"},
+            "shell": {"type": "string", "default": "/bin/bash", "description": "登录 shell"},
+            "create_home": {"type": "boolean", "default": True, "description": "是否创建家目录"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="user_lock",
+        description="锁定/解锁用户账户 — 禁止锁定 root/nobody/当前用户",
+        handler=_safe_import("app.mcp_plugins.user_pkg_plugin", "user_lock"),
+        risk_level=RiskLevel.DANGEROUS,
+        parameters={
+            "username": {"type": "string", "description": "用户名"},
+            "lock": {"type": "boolean", "default": True, "description": "true=锁定, false=解锁"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="user_password",
+        description="修改用户密码 — 密码强度校验(≥8位+大小写+数字), 通过 chpasswd 设置",
+        handler=_safe_import("app.mcp_plugins.user_pkg_plugin", "user_password"),
+        risk_level=RiskLevel.DANGEROUS,
+        parameters={
+            "username": {"type": "string", "description": "用户名"},
+            "password": {"type": "string", "description": "新密码 (≥8位, 含大小写+数字)"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="package_install",
+        description="安装软件包 — apt/dnf/yum 自动适配。禁止安装 kernel/systemd/glibc 等关键系统包",
+        handler=_safe_import("app.mcp_plugins.user_pkg_plugin", "package_install"),
+        risk_level=RiskLevel.DANGEROUS,
+        parameters={
+            "packages": {"type": "string", "description": "包名, 逗号分隔 (如 vim,htop,nginx)"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="package_remove",
+        description="卸载软件包 — apt/dnf/yum 自动适配。禁止卸载 kernel/systemd/glibc 等关键系统包",
+        handler=_safe_import("app.mcp_plugins.user_pkg_plugin", "package_remove"),
+        risk_level=RiskLevel.DANGEROUS,
+        parameters={
+            "packages": {"type": "string", "description": "包名, 逗号分隔"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="package_update_security",
+        description="仅安装安全更新 — apt upgrade --only-upgrade / dnf update --security",
+        handler=_safe_import("app.mcp_plugins.user_pkg_plugin", "package_update_security"),
+        risk_level=RiskLevel.RESTRICTED,
     ))
 
 
