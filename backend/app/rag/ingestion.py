@@ -176,7 +176,7 @@ def build_knowledge_base(
     file_index=None if force else _load_file_index()
 
     all_chunks=[]
-    all_chunks.extend(_load_project_docs(docs_dir, file_index))
+    # all_chunks.extend(_load_project_docs(docs_dir, file_index))
     all_chunks.extend(_load_tool_schemas(file_index))
     all_chunks.extend(_load_sre_knowledge(kb_dir, file_index))
 

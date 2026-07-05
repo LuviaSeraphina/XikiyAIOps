@@ -1,20 +1,12 @@
 """
-Prompt 注入检测器 v2.0 — 安全护栏第二道防线
+Prompt 注入检测器 v4.0 — 仅保留 LLM 输出校验
 
-与 intent_filter 协作:
-- intent_filter      → 检测明显的高危指令和越狱 (第一道防线)
-- injection_detector → 检测隐蔽的注入技巧 (第二道防线)
-
-v2.0 新增:
-- Unicode 同形字/混淆字符检测 (拉丁/西里尔/希腊字母替换)
-- 零宽字符隐蔽注入检测 (U+200B/U+200C/U+200D/U+FEFF)
-- 大小写交替混淆检测 (rM -Rf / 等)
-- 双向文本覆盖注入 (RTL override)
+v4.0 精简:
+- 移除: 输入注入检测 (交给 LLM 语义审查)
+- 移除: is_safe/safe_pipeline (不再从主流程调用)
+- 保留: validate_llm_output (LLM 输出黑名单校验)
 """
 import re
-import base64
-import unicodedata
-from app.core.intent_filter import IntentCategory, classify_intent
 
 
 """ Layer 1: 分隔符注入检测 """
@@ -307,64 +299,5 @@ def detect_injection(user_input):
     return all_hits
 
 
-#方法: 综合安全判定 (intent_filter + injection_detector)
-"""
-方法: is_safe(user_input, intent_cat), 综合 intent_filter + injection_detector 的安全判定
-
-"""
-
-def is_safe(user_input, intent_cat=None):
-    injection_hits = detect_injection(user_input)
-    if injection_hits:
-        return False, injection_hits
-
-    if intent_cat is not None and intent_cat == IntentCategory.JAILBREAK:
-        return False, [intent_cat.value]
-
-    return True, []
-
-
-"""
-方法: safe_pipeline(), 完整安全流水线: 意图 → 注入 → LLM输出校验
-
-Returns: (is_safe: bool, reason: str)
-"""
-def safe_pipeline(user_input, llm_output=None):
-    # 第一道: 意图分类 (v2.0 含威胁评分)
-    intent_cat, intent_hits, _ = classify_intent(user_input)
-    if intent_cat == IntentCategory.JAILBREAK:
-        return False, "意图拦截: {}".format(intent_hits)
-
-    # 第二道: 注入检测 (v2.0 六层)
-    injection_hits = detect_injection(user_input)
-    if injection_hits:
-        return False, "注入拦截: {}".format(injection_hits)
-
-    # 第三道: LLM 输出校验
-    if llm_output:
-        output_hits = validate_llm_output(llm_output)
-        if output_hits:
-            return False, "LLM输出拦截: {}".format(output_hits)
-
-    if intent_cat == IntentCategory.OPS_ACTION:
-        return True, "OPS_CONFIRM: 运维操作需二次确认"
-
-    return True, "PASS"
-
-
-#方法: 注入检测摘要 (用于仪表盘)
-def get_injection_summary(user_input):
-    hits = detect_injection(user_input)
-    return {
-        "injections_detected": len(hits),
-        "is_clean": len(hits) == 0,
-        "hits": hits,
-        "layers": {
-            "separator": any("SEPARATOR" in h for h in hits),
-            "encoding": any("BASE64" in h or "HEX" in h for h in hits),
-            "indirect": any("INDIRECT" in h for h in hits),
-            "homoglyph": any("HOMOGLYPH" in h for h in hits),
-            "zero_width": any("ZERO_WIDTH" in h for h in hits),
-            "case_alternation": any("CASE_ALTERNATION" in h for h in hits),
-        }
-    }
+# v4.0: is_safe/safe_pipeline/get_injection_summary 已移除
+# 输入注入检测交给 LLM 语义审查, 保留 validate_llm_output 用于 LLM 输出校验

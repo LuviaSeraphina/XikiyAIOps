@@ -1,7 +1,8 @@
 """
 Orchestrator — 调度中心: 意图分析 → 拆解 → 路由 → 聚合 → 总结
 
-不调 MCP Tool, 纯编排逻辑
+v4.0: 意图分类交给 LLM 在对话中自主判断, 不再用正则规则。
+      Orchestrator 只负责安全审查 + 统一路由到感知+执行 Agent。
 """
 import json
 import logging
@@ -15,14 +16,6 @@ from app.llm.providers import get_llm_provider
 
 _logger=logging.getLogger("xikiy_aiops.orchestrator")
 
-#意图 → Agent 映射
-INTENT_ROUTING={
-    "SAFE_QUERY":       ["perception"],                    #CPU/内存/磁盘 → 感知
-    "OPS_ACTION":       ["perception","execution"],        #重启/杀进程 → 感知+执行
-    "JAILBREAK":        [],                                #越狱 → 被Security拦截
-    "UNKNOWN":          ["perception"],                    #兜底 → 感知
-}
-
 
 class Orchestrator:
     """主调度器"""
@@ -32,26 +25,14 @@ class Orchestrator:
         self.perception=PerceptionAgent()
         self.execution=ExecutionAgent()
 
-    # ── 意图分析 ──────────────────────────
-
-    def classify(self, user_input:str)->str:
-    # 分析用户意图 → 意图类别
-        from app.core.intent_filter import classify_intent, IntentCategory
-        cat, hits, _=classify_intent(user_input, return_score=True)
-        #直接返回枚举值的字符串
-        intent=cat.value if isinstance(cat, IntentCategory) else str(cat)
-        _logger.info(f"意图分析: '{user_input[:30]}...' → {intent} (hits={hits[:2] if hits else '无'})")
-        return intent
-
     # ── 主编排入口 ────────────────────────
 
     async def run(self, user_input:str, history:List[Dict]=None, session_id:str="")->AsyncGenerator:
         """
         完整编排流程:
-          1. Security 审查输入
-          2. 意图分析 + 路由
-          3. 依次调 Agent → 安全审批 → 执行
-          4. 聚合结果 → LLM 总结 → SSE 流式输出
+          1. Security 审查输入 (正则签名 + LLM 语义)
+          2. 路由到感知 + 执行 Agent (LLM 自主选择工具)
+          3. 聚合结果 → LLM 总结 → SSE 流式输出
         """
         #1. 安全审查
         allowed, reason, risk_level=self.security.review_input(user_input)
@@ -59,10 +40,8 @@ class Orchestrator:
             yield {"event":"error","data":{"message":reason}}
             return
 
-        #2. 意图分析 + 路由
-        intent=self.classify(user_input)
-        agent_names=INTENT_ROUTING.get(intent, ["perception"])
-        _logger.info(f"路由: {intent} → {agent_names}")
+        #2. 路由: 所有请求都可用感知+执行工具 (LLM 自主选择)
+        _logger.info(f"路由: 感知+执行 (LLM 自主意图分析)")
 
         #3. 获取 LLM Provider (用于最终总结)
         provider=get_llm_provider()
@@ -126,7 +105,6 @@ class Orchestrator:
                     args=json.loads(raw_args) if isinstance(raw_args,str) else raw_args
 
                     #获取工具风险等级
-                    #获取工具风险等级 (从原始 Schema)
                     tool_info=next((t for t in agent.get_tools() if t.get("name")==tool_name), None)
                     risk=tool_info.get("risk_level","read_only") if tool_info else "read_only"
 

@@ -5,15 +5,15 @@ LLM 适配层 — 主编排逻辑
 
 模块结构:
     build_system_prompt()   — 动态生成 Agent 身份 Prompt (Tool Schema 由 Provider 层单独传递, 不重复嵌入)
-    check_user_input()      — 安全前置拦截 (越狱/高危/注入不进 LLM)
-    execute_tool()          — 参数注入检测 + 委托 registry.call()
+    check_user_input()      — 安全前置拦截 (越狱签名不进 LLM, 语义审查在 SecurityAgent)
+    execute_tool()          — 委托 registry.call()
     _process_tool_call()    — 单次工具调用的 SSE 事件构建 + 执行
     chat_stream()           — 主入口 async generator, 编排完整对话循环
 
 LLM Provider 切换: 通过 .env 中 LLM_PROVIDER 配置, 支持 ollama / deepseek / qwen / openai
     工厂函数: app.llm.providers.get_llm_provider()
 
-依赖: registry (MCP), intent_filter + injection_detector (安全), providers (LLM)
+依赖: registry (MCP), intent_filter (安全签名), providers (LLM)
 调用方: api/chat.py 通过 POST /api/chat/send → SSE StreamingResponse
 """
 import asyncio
@@ -22,8 +22,7 @@ import os
 from app.services.confirm_state import PENDING_CONFIRMS, CONFIRM_RESULTS
 from app.mcp_plugins.base import registry
 from app.core.platform_detect import _get_platform_info as get_platform_info
-from app.core.intent_filter import classify_intent, IntentCategory
-from app.core.injection_detector import detect_injection
+from app.core.intent_filter import check_jailbreak
 from app.llm.config import MAX_TOOL_ROUNDS
 from app.llm.tools import get_tools
 from app.llm.providers import get_llm_provider
@@ -89,38 +88,33 @@ def build_system_prompt():
     return _cached_prompt
 
 """
-方法: check_user_input(), 安全检查前置 — 不进 LLM 的拦截绝不浪费算力
+方法: check_user_input(), 安全检查前置 — 仅拦截已知越狱签名
+
+v4.0: 意图分类交给 LLM, 这里只做快速签名拦截
+语义审查在 SecurityAgent._llm_review_input() 中完成
 
 Returns (allowed, reason, risk_level):
-    allowed=True,  reason="OK"           -> 安全, 送 LLM
-    allowed=True,  reason="OPS_CONFIRM"  -> 运维操作, 送 LLM 但可能触发二次确认
-    allowed=False, reason="拦截原因"      -> 直接拦截, 不送 LLM
+    allowed=True,  reason="OK"  -> 签名层通过, 送 LLM (LLM 会做语义审查)
+    allowed=False, reason="..."  -> 已知越狱签名, 直接拦截
 """
 def check_user_input(user_input):
     if not user_input or not user_input.strip():
         return False, "输入为空", "blocked"
 
-    cat, hits, score=classify_intent(user_input, return_score=True)
-
-    if cat == IntentCategory.JAILBREAK:
-        return False, "安全拦截: 检测到越狱尝试 (威胁评分 {:.1f})".format(score), "jailbreak"
-
-    if cat == IntentCategory.OPS_ACTION:
-        return True, "OPS_CONFIRM", "restricted"
+    #快速签名拦截 (0.1ms)
+    is_jailbreak, hits=check_jailbreak(user_input)
+    if is_jailbreak:
+        return False, "安全拦截: 检测到越狱签名 — {}".format(hits[0]), "jailbreak"
 
     return True, "OK", "safe"
 
 """
-方法: execute_tool(), 执行单个 MCP Tool — 参数注入检测 + 权限预检 (委托 registry.call)
+方法: execute_tool(), 执行单个 MCP Tool — 委托 registry.call()
+
+v4.0: 参数注入检测已移除, LLM 语义审查层会捕获异常参数
+      Tool 自身的 inputSchema 校验 + handler 安全检查 + sudoers 白名单兜底
 """
 def execute_tool(tool_name, arguments):
-    args_str=json.dumps(arguments, ensure_ascii=False)
-    injection_hits=detect_injection(args_str)
-    if injection_hits:
-        return {
-            "tool": tool_name, "risk_level": "blocked", "data": {},
-            "summary": {"error": "参数注入拦截: {}".format(injection_hits[0])},
-        }
     return registry.call(tool_name, **arguments)
 
 """
