@@ -405,7 +405,7 @@ else
 fi
 
 #配置 sudoers 白名单
-_SUDOERS_SRC="$PROJECT_DIR/config/sudoers.d/xikiy-aiops"
+_SUDOERS_SRC="$PROJECT_DIR/scripts/sudoers.d/xikiy-aiops"
 if [ -f "$_SUDOERS_SRC" ]; then
   sudo install -m 440 "$_SUDOERS_SRC" /etc/sudoers.d/xikiy-aiops
   log_ok "sudoers 已配置 (NOPASSWD 白名单)"

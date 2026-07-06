@@ -1,0 +1,37 @@
+# XikiyAIOps — 最小权限 sudo 白名单
+# Agent 以 xikiy 用户运行, 仅这些命令可通过 sudo -n 免密执行
+# 每条命令都已通过 MCP Tool handler 三层安全校验后才到达 sudo
+
+# ── 文件操作 ──
+xikiy ALL=(root) NOPASSWD: /usr/bin/truncate
+xikiy ALL=(root) NOPASSWD: /usr/sbin/logrotate
+xikiy ALL=(root) NOPASSWD: /usr/bin/tee
+
+# ── 服务管理 ──
+xikiy ALL=(root) NOPASSWD: /usr/bin/systemctl
+
+# ── 进程控制 ──
+xikiy ALL=(root) NOPASSWD: /usr/bin/kill
+xikiy ALL=(root) NOPASSWD: /usr/bin/renice
+xikiy ALL=(root) NOPASSWD: /usr/bin/ionice
+
+# ── 内核参数 ──
+xikiy ALL=(root) NOPASSWD: /usr/sbin/sysctl
+
+# ── 防火墙 ──
+xikiy ALL=(root) NOPASSWD: /usr/sbin/iptables
+xikiy ALL=(root) NOPASSWD: /usr/sbin/nft
+
+# ── 包管理 ──
+xikiy ALL=(root) NOPASSWD: /usr/bin/apt
+xikiy ALL=(root) NOPASSWD: /usr/bin/apt-get
+xikiy ALL=(root) NOPASSWD: /usr/bin/dnf
+xikiy ALL=(root) NOPASSWD: /usr/bin/yum
+
+# ── 用户管理 ──
+xikiy ALL=(root) NOPASSWD: /usr/sbin/useradd
+xikiy ALL=(root) NOPASSWD: /usr/sbin/usermod
+xikiy ALL=(root) NOPASSWD: /usr/sbin/chpasswd
+
+# ── 文件属性 ──
+xikiy ALL=(root) NOPASSWD: /usr/bin/chattr
