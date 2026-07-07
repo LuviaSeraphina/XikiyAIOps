@@ -24,7 +24,7 @@ class SecurityAgent:
 
     # ── 第一道: 输入审查 ──────────────────
 
-    def review_input(self, user_input:str)->Tuple[bool,str,str]:
+    async def review_input(self, user_input:str)->Tuple[bool,str,str]:
     # 审查用户输入         Returns: (allowed, reason, risk_level)
         if not user_input or not user_input.strip():
             return False, "输入为空", "blocked"
@@ -36,11 +36,7 @@ class SecurityAgent:
 
         #LLM 语义审查: 理解上下文, 判断真实意图
         try:
-            import asyncio
-            loop=asyncio.new_event_loop()
-            llm_result=loop.run_until_complete(self._llm_review_input(user_input))
-            loop.close()
-            return llm_result
+            return await self._llm_review_input(user_input)
         except Exception:
             return True, "OK(LLM审查异常,放行)", "safe"
 

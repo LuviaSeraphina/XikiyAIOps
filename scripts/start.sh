@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# XikiyAIOps 一键启动脚本 v1.1.0
+# XikiyAIOps 一键启动脚本 v1.2.0
 #
 # 同时启动后端 (FastAPI) 和前端 (Vite dev server)
 # 用法: bash scripts/start.sh

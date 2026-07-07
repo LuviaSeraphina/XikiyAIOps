@@ -262,6 +262,7 @@ _SUDO_COMMANDS={
     "truncate","logrotate","systemctl","sysctl","kill",
     "renice","ionice","iptables","nft","useradd","usermod",
     "chpasswd","apt","dnf","yum","tee","chattr",
+    "journalctl","find","rmmod",
 }
 
 # 高危参数模式 — 分三类匹配, 避免子串误伤 (如 rm 匹配 format)

@@ -1,191 +1,271 @@
 """
-Orchestrator — 调度中心: 意图分析 → 拆解 → 路由 → 聚合 → 总结
+Orchestrator — 三阶段流水线编排器
 
-v4.0: 意图分类交给 LLM 在对话中自主判断, 不再用正则规则。
-      Orchestrator 只负责安全审查 + 统一路由到感知+执行 Agent。
+v4.0: Planner → Executor → Summarizer
+
+阶段 1: Planner 分析意图，生成任务计划
+阶段 2: Executor 按计划逐步执行工具
+阶段 3: Summarizer 整合结果，生成报告
 """
 import json
 import logging
 from typing import List, Dict, AsyncGenerator
-from .base import BaseAgent
 from .security import SecurityAgent
-from .perception import PerceptionAgent
-from .execution import ExecutionAgent
-from .prompts import ORCHESTRATOR_PROMPT
-from app.llm.providers import get_llm_provider
+from .planner import PlannerAgent
+from .executor import ExecutorAgent
+from .summarizer import SummarizerAgent
+from .types import StepResult, StepStatus
 
 _logger=logging.getLogger("xikiy_aiops.orchestrator")
 
 
 class Orchestrator:
-    """主调度器"""
+    """三阶段流水线编排器"""
 
     def __init__(self):
-        self.security=SecurityAgent()
-        self.perception=PerceptionAgent()
-        self.execution=ExecutionAgent()
+        self.security = SecurityAgent()
+        self.planner = PlannerAgent()
+        self.executor = ExecutorAgent()
+        self.summarizer = SummarizerAgent()
 
-    # ── 主编排入口 ────────────────────────
-
-    async def run(self, user_input:str, history:List[Dict]=None, session_id:str="")->AsyncGenerator:
+    async def run(self, user_input: str, history: List[Dict] = None, session_id: str = "") -> AsyncGenerator:
         """
-        完整编排流程:
-          1. Security 审查输入 (正则签名 + LLM 语义)
-          2. 路由到感知 + 执行 Agent (LLM 自主选择工具)
-          3. 聚合结果 → LLM 总结 → SSE 流式输出
+        三阶段流水线编排流程:
+          阶段 0: Security 审查输入
+          阶段 1: Planner 生成任务计划
+          阶段 2: Executor 逐步执行
+          阶段 3: Summarizer 生成报告
         """
-        #1. 安全审查
-        allowed, reason, risk_level=self.security.review_input(user_input)
+        # ── 阶段 0: 安全审查 ──────────────────
+        allowed, reason, risk_level = await self.security.review_input(user_input)
         if not allowed:
-            yield {"event":"error","data":{"message":reason}}
+            yield {"event": "error", "data": {"message": reason}}
             return
+        
+        _logger.info(f"[阶段 0] 安全审查通过: risk_level={risk_level}")
 
-        #2. 路由: 所有请求都可用感知+执行工具 (LLM 自主选择)
-        _logger.info(f"路由: 感知+执行 (LLM 自主意图分析)")
+        # ── 阶段 1: Planner 生成任务计划 ──────
+        yield {"event": "phase", "data": {"phase": "planning", "message": "正在分析您的请求..."}}
+        
+        plan = await self.planner.plan(user_input)
+        _logger.info(f"[阶段 1] 生成计划: {plan.intent}, {len(plan.steps)} 个步骤")
+        
+        # 发送计划事件
+        yield {
+            "event": "plan",
+            "data": {
+                "intent": plan.intent,
+                "strategy": plan.strategy,
+                "steps": [
+                    {
+                        "id": step.id,
+                        "tool": step.tool,
+                        "description": step.description,
+                        "params": step.params,
+                        "depends_on": step.depends_on
+                    }
+                    for step in plan.steps
+                ]
+            }
+        }
 
-        #3. 获取 LLM Provider (用于最终总结)
-        provider=get_llm_provider()
-
-        #4. 按序调用 Agent
-        all_tool_results=[]
-        confirm_needed=False
-
-        #使用标准化的 Tool Schema (OpenAI 格式: type=function)
-        from app.llm.tools import get_tools as _get_all_tools
-        all_tools=_get_all_tools()
-
-        for agent_name in agent_names:
-            agent=self.perception if agent_name=="perception" else self.execution
-            #过滤出该Agent允许的工具 (标准化 Schema: {type:function, function:{name:...}})
-            allowed_names={t["name"] for t in agent.get_tools()}
-            agent_tools=[t for t in all_tools if t.get("function",{}).get("name") in allowed_names]
-            if not agent_tools:
-                _logger.warning(f"{agent_name}: 无可用工具 (allowed={len(allowed_names)}, standard={len(all_tools)})")
+        # ── 阶段 2: Executor 逐步执行 ─────────
+        yield {"event": "phase", "data": {"phase": "executing", "message": "开始执行计划..."}}
+        
+        results = []
+        
+        for step in plan.steps:
+            # 发送步骤开始事件
+            yield {
+                "event": "step_start",
+                "data": {
+                    "step_id": step.id,
+                    "tool": step.tool,
+                    "description": step.description
+                }
+            }
+            
+            # 检查依赖
+            deps_ok = True
+            if step.depends_on:
+                dep_results = self.executor._get_dependency_results(step.depends_on, results)
+                if not self.executor._check_dependencies_success(dep_results):
+                    deps_ok = False
+            
+            # 依赖失败时的处理: 有 fallback 则执行 fallback, 有 max_retries 则尝试跳过依赖执行
+            if not deps_ok:
+                if step.fallback_tool:
+                    _logger.info(f"[阶段 2] 步骤 {step.id} 依赖失败，执行 fallback: {step.fallback_tool}")
+                    fallback_params = self.executor._resolve_fallback_params(step, step.params, results)
+                    fallback_result = await self.executor._execute_step(step.fallback_tool, fallback_params)
+                    fallback_result.step_id = step.id
+                    fallback_result.tool_name = step.fallback_tool
+                    results.append(fallback_result)
+                    yield {
+                        "event": "step_result",
+                        "data": {
+                            "step_id": step.id,
+                            "tool": step.fallback_tool,
+                            "status": fallback_result.status.value,
+                            "error": fallback_result.error,
+                            "summary": fallback_result.tool_result.get("summary", {}) if fallback_result.tool_result else {}
+                        }
+                    }
+                    continue
+                elif step.max_retries > 0:
+                    # 有重试但依赖失败 — 跳过依赖检查直接执行（可能是参数引用失败）
+                    pass
+                else:
+                    _logger.warning(f"[阶段 2] 步骤 {step.id} 依赖失败，跳过")
+                    result = StepResult(
+                        step_id=step.id, tool_name=step.tool,
+                        status=StepStatus.SKIPPED, error='依赖步骤失败'
+                    )
+                    results.append(result)
+                    yield {
+                        "event": "step_result",
+                        "data": {
+                            "step_id": step.id, "tool": step.tool,
+                            "status": "SKIPPED", "error": "依赖步骤失败"
+                        }
+                    }
+                    continue
+            
+            # 解析动态参数
+            params = self.executor._resolve_params(step.params, results)
+            
+            # 安全审批 - 从注册表获取工具的风险等级
+            from app.mcp_plugins.base import registry
+            tool_obj = registry.get_tool(step.tool)
+            tool_risk = tool_obj.risk_level.value if tool_obj and hasattr(tool_obj, 'risk_level') else "read_only"
+            
+            approved, reason = self.security.approve_tool(step.tool, params, tool_risk)
+            if not approved:
+                _logger.warning(f"[阶段 2] 步骤 {step.id} 安全审批未通过: {reason}")
+                result = StepResult(
+                    step_id=step.id, tool_name=step.tool,
+                    status=StepStatus.BLOCKED, error=f'安全审批未通过: {reason}'
+                )
+                results.append(result)
+                yield {
+                    "event": "step_result",
+                    "data": {
+                        "step_id": step.id, "tool": step.tool,
+                        "status": "BLOCKED", "error": reason
+                    }
+                }
                 continue
-
-            #构建 messages
-            rag_ctx=""
-            try:
-                from app.rag.inject import inject_context
-                rag_ctx=inject_context(user_input)
-            except Exception:
-                pass
-
-            messages=agent.build_messages(user_input, rag_ctx)
-
-            #Agent 对话循环 (带审批)
-            for round_idx in range(3):
-                assistant_content=""
-                tool_calls=[]
-
-                async for event in provider.chat_stream(messages, agent_tools):
-                    if event["type"]=="token":
-                        assistant_content+=event["content"]
-                    elif event["type"]=="tool_calls":
-                        tool_calls=event["calls"]
-                    elif event["type"]=="done":
-                        break
-
-                if not tool_calls:
-                    #Agent 无更多工具调用 → 结束, 不输出中间思考
+            
+            # 需要用户确认
+            if reason == "NEED_CONFIRM":
+                _logger.info(f"[阶段 2] 步骤 {step.id} 需要用户确认")
+                yield {
+                    "event": "confirm",
+                    "data": {
+                        "step_id": step.id, "tool": step.tool,
+                        "params": params, "risk": tool_risk,
+                        "description": step.description
+                    }
+                }
+                _logger.info(f"[阶段 2] 用户已确认，继续执行")
+            
+            # 执行工具（支持重试）
+            max_attempts = step.max_retries + 1
+            retry_count = 0
+            result = None
+            
+            while retry_count < max_attempts:
+                _logger.info(f"[阶段 2] 执行步骤 {step.id}: {step.tool}({params})"
+                    + (f" (重试 {retry_count}/{step.max_retries})" if retry_count > 0 else ""))
+                
+                result = await self.executor._execute_step(step.tool, params)
+                
+                if result.status != StepStatus.FAILED or retry_count >= max_attempts - 1:
                     break
-
-                #追加 assistant 消息
-                messages.append({
-                    "role":"assistant",
-                    "content":assistant_content,
-                    "tool_calls":tool_calls,
-                })
-
-                #审批 + 执行
-                for tc in tool_calls:
-                    fn=tc.get("function",{})
-                    tool_name=fn.get("name","")
-                    raw_args=fn.get("arguments","{}")
-                    args=json.loads(raw_args) if isinstance(raw_args,str) else raw_args
-
-                    #获取工具风险等级
-                    tool_info=next((t for t in agent.get_tools() if t.get("name")==tool_name), None)
-                    risk=tool_info.get("risk_level","read_only") if tool_info else "read_only"
-
-                    #安全审批
-                    approved, reason=self.security.approve_tool(tool_name, args, risk)
-                    if not approved:
-                        yield {"event":"error","data":{"message":f"安全拦截: {tool_name} — {reason}"}}
-                        continue
-
-                    if reason=="NEED_CONFIRM":
-                        yield {"event":"confirm","data":{"tool":tool_name,"args":args,"risk":risk}}
-                        #等待用户确认 (由前端通过 SSE confirm 事件传回)
-                        confirm_needed=True
-
-                    #显示工具调用
-                    yield {"event":"tool_start","data":{"agent":agent_name,"tool":tool_name}}
-
-                    #执行工具 — _raw=True 获取原始数据供 Agent 感知分析
-                    from app.mcp_plugins.base import registry
-                    from app.mcp_plugins._common import sanitize_response
-                    raw_result=registry.call(tool_name, _raw=True, **args)
-                    if raw_result:
-                        raw_result["_tool_call_id"]=tc.get("id","")
-
-                    #审计 (用原始数据)
-                    self.security.audit(session_id, tool_name, args, raw_result)
-
-                    all_tool_results.append({
-                        "agent":agent_name,
-                        "tool":tool_name,
-                        "args":args,
-                        "result":raw_result,
-                    })
-
-                    #前端展示: 脱敏后返回
-                    safe_result=sanitize_response(tool_name, dict(raw_result)) if raw_result else raw_result
-                    yield {"event":"tool_result","data":{"agent":agent_name,"tool":tool_name,"result":safe_result}}
-
-                    #追加 tool 消息 — 原始数据给 LLM, Agent 需要完整信息做判断
-                    messages.append({
-                        "role":"tool",
-                        "tool_call_id":tc.get("id",""),
-                        "content":json.dumps(raw_result,ensure_ascii=False) if raw_result else "{}",
-                    })
-
-        #5. 聚合 + LLM 总结
-        if all_tool_results:
-            summary_prompt=self._build_summary_prompt(user_input, all_tool_results)
-            messages=[
-                {"role":"system","content":ORCHESTRATOR_PROMPT},
-                {"role":"user","content":summary_prompt},
-            ]
-            async for event in provider.chat_stream(messages, []):
-                if event["type"]=="token":
-                    yield {"event":"token","data":{"text":event["content"]}}
-                elif event["type"]=="done":
+                
+                # 尝试推进到列表中的下一个元素
+                if not self._advance_to_next_item(step, params, results):
                     break
-        elif not confirm_needed:
-            yield {"event":"token","data":{"text":"未找到可用的工具或数据来回答您的问题。"}}
+                
+                retry_count += 1
+                yield {
+                    "event": "step_start",
+                    "data": {
+                        "step_id": step.id, "tool": step.tool,
+                        "description": f"{step.description} (重试 {retry_count})"
+                    }
+                }
+            
+            result.step_id = step.id
+            result.tool_name = step.tool
+            results.append(result)
+            
+            # 检查是否需要回退
+            if result.status == StepStatus.FAILED and step.fallback_tool:
+                _logger.info(f"[阶段 2] 步骤 {step.id} 失败，尝试回退: {step.fallback_tool}")
+                fallback_params = self.executor._resolve_fallback_params(step, params, results)
+                fallback_result = await self.executor._execute_step(step.fallback_tool, fallback_params)
+                fallback_result.step_id = step.id
+                fallback_result.tool_name = step.fallback_tool
+                results[-1] = fallback_result  # 替换原结果
+                result = fallback_result
+            
+            # 发送步骤结果事件
+            yield {
+                "event": "step_result",
+                "data": {
+                    "step_id": step.id,
+                    "tool": result.tool_name,
+                    "status": result.status.value,
+                    "error": result.error if result.status == StepStatus.FAILED else None,
+                    "summary": result.tool_result.get("summary", {}) if result.tool_result else {}
+                }
+            }
+        
+        _logger.info(f"[阶段 2] 执行完成: {len(results)} 个步骤")
 
-    # ── 构造 LLM 总结 prompt ──────────────
+        # ── 阶段 3: Summarizer 生成报告 ───────
+        yield {"event": "phase", "data": {"phase": "summarizing", "message": "正在生成报告..."}}
+        
+        report = await self.summarizer.summarize(plan, results, user_input)
+        _logger.info(f"[阶段 3] 报告生成完成: {len(report)} 字符")
+        
+        # 流式输出报告
+        for char in report:
+            yield {"event": "token", "data": {"text": char}}
+        
+        # 完成
+        yield {"event": "done", "data": {"total_steps": len(plan.steps), "report_length": len(report)}}
 
-    def _build_summary_prompt(self, user_query:str, tool_results:List[Dict])->str:
-    # 将各Agent返回的数据聚合为一个总结 prompt
-        lines=[f"用户查询: {user_query}\n"]
-        lines.append("各 Agent 采集的数据如下:\n")
+    # ── 重试辅助: 推进到列表中的下一个元素 ──
 
-        for tr in tool_results:
-            result=tr.get("result",{})
-            data=result.get("data",{})
-            summary=result.get("summary",{})
-            lines.append(f"--- {tr['agent']}/{tr['tool']} ---")
-            if summary:
-                lines.append(json.dumps(summary,ensure_ascii=False))
-            elif data:
-                #截断过长数据
-                data_str=json.dumps(data,ensure_ascii=False)
-                if len(data_str)>2000:
-                    data_str=data_str[:2000]+"..."
-                lines.append(data_str)
-            lines.append("")
-
-        lines.append("请根据以上数据, 用中文生成一份简洁的系统状态报告。用表格展示关键指标, 🟢🟡🔴 标注风险等级。")
-        return "\n".join(lines)
+    def _advance_to_next_item(self, step, params, results):
+        """
+        当步骤失败且参数引用了数组元素 (如 files[0].path) 时，
+        将索引 +1 尝试下一个元素。成功则原地修改 params 并返回 True。
+        """
+        import re
+        for key, val in step.params.items():
+            if not isinstance(val, str) or not val.startswith('${'):
+                continue
+            m = re.search(r'\[(\d+)\]', val)
+            if not m:
+                continue
+            old_idx = int(m.group(1))
+            new_val = val[:m.start(1)] + str(old_idx + 1) + val[m.end(1):]
+            # 检查目标元素是否存在
+            ref_path = new_val[2:-1]
+            ref_m = re.match(r'step(\d+)\.(.+)', ref_path)
+            if not ref_m:
+                continue
+            step_id = int(ref_m.group(1))
+            field_path = ref_m.group(2)
+            prev_result = next((r for r in results if r.step_id == step_id), None)
+            if prev_result and prev_result.tool_result:
+                val_check = self.executor._extract_field(prev_result.tool_result, field_path)
+                if val_check is not None:
+                    params[key] = val_check
+                    step.params[key] = new_val
+                    _logger.info(f"重试推进: {key} [{old_idx}] → [{old_idx + 1}]")
+                    return True
+        return False

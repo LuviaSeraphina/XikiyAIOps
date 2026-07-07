@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# XikiyAIOps 一键部署 v1.1.0
+# XikiyAIOps 一键部署 v1.2.0
 # 用法: bash scripts/deploy.sh
 # ============================================================
 set -euo pipefail
@@ -23,7 +23,7 @@ ACTUAL_USER="${SUDO_USER:-$(whoami)}"
 
 echo -e "${BOLD}${GREEN}"
 echo "  ╔══════════════════════════════════════╗"
-echo "  ║   XikiyAIOps 一键部署 v1.1.0          ║"
+echo "  ║   XikiyAIOps 一键部署 v1.2.0          ║"
 echo "  ╚══════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -402,6 +402,14 @@ if ! id xikiy &>/dev/null; then
   log_ok "用户 xikiy 已创建"
 else
   log_info "用户 xikiy 已存在"
+fi
+
+#加入 sudo 组 — restricted 工具需要 sudo 组成员权限
+if ! groups xikiy 2>/dev/null | grep -qw sudo; then
+  sudo usermod -aG sudo xikiy
+  log_ok "xikiy 已加入 sudo 组"
+else
+  log_info "xikiy 已在 sudo 组"
 fi
 
 #配置 sudoers 白名单

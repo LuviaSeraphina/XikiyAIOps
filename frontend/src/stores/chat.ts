@@ -8,13 +8,26 @@ import { ref, computed } from 'vue'
 import type { ChatMessage, PendingToolItem, RiskLevel, ToolCallStatus, Conversation } from '../types'
 import { sendMessage as apiSendMessage, fetchConversations, fetchConversationDetail, confirmAction } from '../api/chat'
 
+// crypto.randomUUID 兼容层
+function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+  // fallback: 手动生成 UUID v4
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
 export const useChatStore = defineStore('chat', () => {
   // ====== 状态 ======
   const messages = ref<ChatMessage[]>([])
   const streaming = ref(false)
   const pendingTools = ref<PendingToolItem[]>([])
   const isAwaitingConfirm = ref(false)
-  const currentSessionId = ref<string>(crypto.randomUUID())
+  const currentSessionId = ref<string>(generateUUID())
 
   // 历史
   const conversations = ref<Conversation[]>([])
@@ -48,7 +61,7 @@ export const useChatStore = defineStore('chat', () => {
         if (!existing) {
           agentMsg.tool_calls = agentMsg.tool_calls || []
           agentMsg.tool_calls.push({
-            id: crypto.randomUUID(),
+            id: generateUUID(),
             tool_name: toolName,
             arguments: (data.arguments as Record<string, unknown>) || {},
             status: 'running',
@@ -123,7 +136,7 @@ export const useChatStore = defineStore('chat', () => {
 
     // 1. 追加用户消息
     const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       role: 'user',
       content: text,
       timestamp: new Date().toISOString(),
@@ -132,7 +145,7 @@ export const useChatStore = defineStore('chat', () => {
 
     // 2. 追加空的助理消息（流式填充）
     const agentMsg: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       role: 'assistant',
       content: '',
       timestamp: new Date().toISOString(),
@@ -232,7 +245,7 @@ export const useChatStore = defineStore('chat', () => {
     pendingTools.value = []
     confirmAction(currentSessionId.value).catch(() => {})
     messages.value.push({
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       role: 'system',
       content: `⚠️ 已取消操作: ${toolNames}`,
       timestamp: new Date().toISOString(),
@@ -245,7 +258,7 @@ export const useChatStore = defineStore('chat', () => {
     pendingTools.value = []
     isAwaitingConfirm.value = false
     lastHealthScore.value = null
-    currentSessionId.value = crypto.randomUUID()
+    currentSessionId.value = generateUUID()
   }
 
   /** 加载历史会话列表 */

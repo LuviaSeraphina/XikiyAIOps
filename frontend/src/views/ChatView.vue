@@ -8,7 +8,8 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
-      <div class="history-list" v-loading="store.historyLoading">
+      <div class="history-list">
+        <div v-if="store.historyLoading" class="history-loading">加载中...</div>
         <div
           v-for="conv in store.conversations"
           :key="conv.id"

@@ -20,14 +20,42 @@ class AgentResult:
 
 # ── Tool 分区定义 ──────────────────────────
 
-#感知Agent: 所有只读工具 (系统感知 + 安全审计)
-PERCEPTION_TOOLS=[t for t in registry.list_all() if t.get("risk_level")=="read_only"]
+#按风险等级分组 (v4.0 三阶段流水线)
+READ_ONLY_TOOLS = [t for t in registry.list_all() if t.get("risk_level") == "read_only"]
+RESTRICTED_TOOLS = [t for t in registry.list_all() if t.get("risk_level") == "restricted"]
+DANGEROUS_TOOLS = [t for t in registry.list_all() if t.get("risk_level") == "dangerous"]
 
-#执行Agent: 危险/受限写操作工具
-EXECUTION_TOOLS=[t for t in registry.list_all() if t.get("risk_level") in ("dangerous","restricted")]
+#写操作工具 (restricted + dangerous)
+WRITE_TOOLS = RESTRICTED_TOOLS + DANGEROUS_TOOLS
 
-#安全Agent: 无工具, 纯逻辑层
-SECURITY_TOOLS=[]
+#向后兼容 (deprecated, 将在 v4.0 重构后移除)
+PERCEPTION_TOOLS = READ_ONLY_TOOLS
+EXECUTION_TOOLS = WRITE_TOOLS
+SECURITY_TOOLS = []
+
+
+def get_tools_by_risk(max_risk: str = "restricted") -> List[Dict]:
+    """根据最大风险等级返回工具子集
+    
+    Args:
+        max_risk: 最大允许的风险等级
+            - "read_only": 只返回只读工具
+            - "restricted": 返回只读 + 受限工具
+            - "dangerous": 返回所有工具 (只读 + 受限 + 危险)
+    
+    Returns:
+        工具列表
+    """
+    risk_order = {"read_only": 0, "restricted": 1, "dangerous": 2}
+    max_level = risk_order.get(max_risk, 2)
+    
+    tools = READ_ONLY_TOOLS[:]
+    if max_level >= 1:
+        tools.extend(RESTRICTED_TOOLS)
+    if max_level >= 2:
+        tools.extend(DANGEROUS_TOOLS)
+    
+    return tools
 
 
 # ── Agent 基类 ─────────────────────────────

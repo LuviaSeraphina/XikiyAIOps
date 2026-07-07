@@ -35,3 +35,7 @@ xikiy ALL=(root) NOPASSWD: /usr/sbin/chpasswd
 
 # ── 文件属性 ──
 xikiy ALL=(root) NOPASSWD: /usr/bin/chattr
+
+# 清理操作
+xikiy ALL=(root) NOPASSWD: /usr/bin/journalctl
+xikiy ALL=(root) NOPASSWD: /usr/bin/find
