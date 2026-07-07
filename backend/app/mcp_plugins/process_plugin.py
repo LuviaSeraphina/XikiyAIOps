@@ -131,6 +131,7 @@ def process_detail_handler(pid):
 
 """
 方法: process_tree_handler(), 进程树 — 按 ppid 构建父子关系, 返回以 PID 1 为根的进程树
+
 """
 def process_tree_handler():
     try:
@@ -188,6 +189,7 @@ def process_tree_handler():
 
 """
 方法: process_zombie_scan_handler(), 僵尸进程检测 — 筛选 status=zombie 并解析父进程名
+
 """
 def process_zombie_scan_handler():
     try:
@@ -225,6 +227,7 @@ def process_zombie_scan_handler():
 
 """
 方法: process_top_cpu_handler(top_n=5), Top N CPU 消耗进程 — 快速 CPU 热点快照
+
 """
 def process_top_cpu_handler(top_n=5):
     try:
@@ -264,6 +267,7 @@ def process_top_cpu_handler(top_n=5):
 
 """
 方法: process_top_memory_handler(top_n=5), Top N 内存消耗进程 — 含 RSS MB
+
 """
 def process_top_memory_handler(top_n=5):
     try:
@@ -371,12 +375,11 @@ def process_kill_handler(pid, signal_name="SIGTERM"):
 
 
 # ── process_smaps: 进程内存映射分析 ──
+"""
+方法: process_smaps_handler(pid), 进程内存映射分析: PSS/RSS/共享/私有/Swap 使用量
 
+"""
 def process_smaps_handler(pid):
-    """
-    方法: process_smaps_handler(pid), 进程内存映射分析: PSS/RSS/共享/私有/Swap 使用量
-
-    """
     try:
         pid=int(pid)
         rollup_path=f"/proc/{pid}/smaps_rollup"

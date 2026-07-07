@@ -480,7 +480,6 @@ _JOURNAL_LINE_RE=re.compile(
 方法: _parse_journal_entries(lines, keyword), 解析 journalctl -o short-iso 输出行, 可选关键词过滤
 
 """
-
 def _parse_journal_entries(lines, keyword=""):
     entries=[]
     for line in lines:
@@ -586,12 +585,11 @@ def system_journal_tail(lines=20, priority="err"):
 
 
 # ── vmstat_stats: 虚拟内存/IO/上下文切换/进程统计 ──
+"""
+方法: vmstat_stats(intervals=1,count=3), 虚拟内存统计 (vmstat): CPU/IO/swap/上下文切换/中断采样
 
+"""
 def vmstat_stats(intervals=1,count=3):
-    """
-    方法: vmstat_stats(intervals=1,count=3), 虚拟内存统计 (vmstat): CPU/IO/swap/上下文切换/中断采样
-
-    """
     try:
         intervals=int(max(1,min(intervals,5)))
         count=int(max(1,min(count,10)))
@@ -648,12 +646,11 @@ def vmstat_stats(intervals=1,count=3):
 
 
 # ── system_timers: systemd 定时器列表 ──
+"""
+方法: system_timers(), 列出 systemd 定时器: 名称/下次触发/上次触发/关联服务
 
+"""
 def system_timers():
-    """
-    方法: system_timers(), 列出 systemd 定时器: 名称/下次触发/上次触发/关联服务
-
-    """
     try:
         result=_run_command(["systemctl","list-timers","--all","--no-pager","--no-legend"],timeout=10)
         if not _cmd_ok(result):

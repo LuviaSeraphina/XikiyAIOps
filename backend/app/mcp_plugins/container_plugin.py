@@ -21,6 +21,7 @@ from app.mcp_plugins._common import (
 
 """
 方法: _detect_container_runtime(), 检测可用容器运行时 — docker > podman > none
+
 """
 def _detect_container_runtime():
     for cmd in ["docker", "podman"]:
@@ -70,6 +71,7 @@ def container_list():
 
 """
 方法: container_stats(), 容器资源用量 — CPU%/内存/网络 I/O
+
 """
 def container_stats():
     try:
@@ -104,6 +106,7 @@ def container_stats():
 
 """
 方法: container_inspect(), 单容器详情 — 环境变量/挂载卷/privileged/Capabilities (安全审计)
+
 """
 def container_inspect(container_name=""):
     try:

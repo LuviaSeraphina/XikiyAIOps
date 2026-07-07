@@ -11,6 +11,7 @@ from app.mcp_plugins._common import make_response as _make_response, error_respo
 
 """
 方法: health_config_get_handler(), 读取当前健康评分配置
+
 """
 def health_config_get_handler():
     try:
@@ -29,6 +30,7 @@ def health_config_get_handler():
 
 """
 方法: health_config_set_handler(), 按 dot-path 修改单个配置项
+
 """
 def health_config_set_handler(key_path="", value=0.0):
     try:

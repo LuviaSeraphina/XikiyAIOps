@@ -214,10 +214,6 @@ def _parse_ip_stats(result):
 
 
 """
-方法: network_interface_stats(), 网卡流量与错误统计, 识别丢包/错误异常
-
-"""
-"""
 方法: network_interface_stats(), 网卡流量与错误统计
 
 v2: KYSDK NetworkManager 优先 (22 项 API 精确采集), 回落 ip -s link 正则解析
@@ -473,12 +469,11 @@ def network_dns_check(domain, dns_server=""):
 
 
 # ── network_ping: ICMP 连通性检查 ──
+"""
+方法: network_ping(target,count=3), ICMP 连通性检查 (ping)
 
+"""
 def network_ping(target,count=3):
-    """
-    方法: network_ping(target,count=3), ICMP 连通性检查 (ping)
-
-    """
     try:
         if not re.match(r'^[a-zA-Z0-9.-]+$',target):
             return _error_response("network_ping",f"非法目标: {target}")
@@ -549,4 +544,3 @@ def network_http_check(url,timeout=5):
             )
     except Exception as e:
         return _error_response("network_http_check",e)
-        return _error_response("network_http_check", e)
