@@ -64,63 +64,24 @@ RAG: rag_search, rag_stats
 用户: user_create, user_lock, user_password
 包: package_install, package_remove
 
-## 场景编排模板
+## 场景编排
 
-### 场景 A: 清理系统垃圾 (clean_system_garbage)
-```json
-{{
-  "intent": "clean_system_garbage",
-  "strategy": "先感知磁盘状态，定位大文件，识别性质，逐个安全清理，最后验证",
-  "steps": [
-    {{"id": 1, "description": "检查磁盘使用率", "tool": "disk_inspect", "params": {{}}, "depends_on": []}},
-    {{"id": 2, "description": "定位大文件 (>100MB)", "tool": "disk_large_files", "params": {{"min_size_mb": 100, "top_n": 5}}, "depends_on": [1]}},
-    {{"id": 3, "description": "识别大文件的性质", "tool": "file_identify", "params": {{"path": "${{step2.data.files[0].path}}"}}, "depends_on": [2], "max_retries": 2}},
-    {{"id": 4, "description": "安全清理非关键文件", "tool": "file_truncate", "params": {{"path": "${{step3.data.path}}"}}, "depends_on": [3], "fallback_tool": "disk_cleanup"}},
-    {{"id": 5, "description": "验证清理效果", "tool": "disk_inspect", "params": {{}}, "depends_on": [4]}}
-  ]
-}}
-```
+**场景模板已内置在 RAG 知识库中，系统会根据你的输入自动检索匹配的场景模板并注入下方。**
+**如未注入任何模板，请根据用户意图自由规划步骤。**
 
-### 场景 B: 配置漂移 (config_drift)
-```json
-{{
-  "intent": "config_drift",
-  "strategy": "对比配置差异，备份当前配置，恢复原始配置，重载服务",
-  "steps": [
-    {{"id": 1, "description": "对比当前配置与备份", "tool": "config_diff", "params": {{"path": "/etc/nginx/nginx.conf", "compare_to": "/etc/nginx/nginx.conf.original"}}, "depends_on": []}},
-    {{"id": 2, "description": "备份当前漂移配置", "tool": "config_backup", "params": {{"path": "/etc/nginx/nginx.conf", "tag": "drift_backup"}}, "depends_on": [1]}},
-    {{"id": 3, "description": "恢复原始配置", "tool": "config_restore", "params": {{"backup_path": "${{step2.data.backup_path}}"}}, "depends_on": [2]}},
-    {{"id": 4, "description": "重载服务", "tool": "service_control", "params": {{"service": "nginx", "action": "reload"}}, "depends_on": [3]}}
-  ]
-}}
-```
-
-### 场景 C: I/O 异常 (io_anomaly)
-```json
-{{
-  "intent": "io_anomaly",
-  "strategy": "确认 I/O 异常，定位元凶进程，降低优先级，验证效果",
-  "steps": [
-    {{"id": 1, "description": "检查磁盘 I/O 统计", "tool": "disk_io_stats", "params": {{}}, "depends_on": []}},
-    {{"id": 2, "description": "定位 I/O 最高的进程", "tool": "process_io_top", "params": {{"top_n": 5}}, "depends_on": [1]}},
-    {{"id": 3, "description": "降低进程 I/O 优先级", "tool": "process_ionice", "params": {{"pid": "${{step2.data.processes[0].pid}}", "class": "idle"}}, "depends_on": [2]}},
-    {{"id": 4, "description": "验证 I/O 改善", "tool": "disk_io_stats", "params": {{}}, "depends_on": [3]}}
-  ]
-}}
-```
-
-### 场景 D: 僵尸进程清理 (zombie_cleanup)
-```json
-{{
-  "intent": "zombie_cleanup",
-  "strategy": "扫描僵尸进程，清理父进程，验证结果",
-  "steps": [
-    {{"id": 1, "description": "扫描僵尸进程", "tool": "process_zombie_scan", "params": {{}}, "depends_on": []}},
-    {{"id": 2, "description": "清理僵尸进程", "tool": "process_zombie_cleanup", "params": {{"pid": "${{step1.data.zombies[0].pid}}"}}, "depends_on": [1]}},
-    {{"id": 3, "description": "验证清理结果", "tool": "process_zombie_scan", "params": {{}}, "depends_on": [2]}}
-  ]
-}}
-```
+支持的场景类型 (intent):
+- clean_system_garbage  — 清理系统垃圾
+- config_drift          — 配置漂移检测
+- io_anomaly            — I/O 磁盘异常
+- zombie_cleanup        — 僵尸进程清理
+- service_recovery      — 服务故障自愈
+- security_audit        — 安全基线审计
+- oom_diagnosis         — OOM 内存溢出排查
+- network_diagnosis     — 网络连通性诊断
+- swap_diagnosis        — Swap 抖动诊断
+- fd_leak               — FD 文件描述符泄漏
+- system_diagnosis      — 通用系统诊断
+- custom                — 自定义场景 (自由规划)
 
 ## 动态参数提取
 
@@ -134,7 +95,7 @@ RAG: rag_search, rag_stats
 **只输出 JSON，不要输出任何其他文本:**
 ```json
 {{
-  "intent": "场景类型 (clean_system_garbage / config_drift / io_anomaly / zombie_cleanup / custom)",
+  "intent": "场景类型 (clean_system_garbage / config_drift / io_anomaly / zombie_cleanup / service_recovery / security_audit / oom_diagnosis / network_diagnosis / swap_diagnosis / fd_leak / system_diagnosis / custom)",
   "strategy": "执行策略描述 (一句话)",
   "steps": [
     {{

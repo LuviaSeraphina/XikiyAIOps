@@ -8,7 +8,7 @@ from typing import List
 _logger=logging.getLogger("xikiy_aiops.rag")
 
 _ENABLED=os.getenv("RAG_AUTO_INJECT","1")=="1"
-_TOP_K=int(os.getenv("RAG_AUTO_INJECT_TOP_K","3"))
+_TOP_K=int(os.getenv("RAG_AUTO_INJECT_TOP_K","5"))
 _initialized=False
 
 

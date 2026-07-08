@@ -40,9 +40,20 @@ class PlannerAgent(BaseAgent):
         """
         logger.info(f"[Planner] 开始规划任务: {user_input}")
         
+        # RAG 知识注入 — 检索相关 SRE 知识 + 场景模板
+        system_content = self.system_prompt
+        try:
+            from app.rag.inject import inject_context
+            rag_ctx = inject_context(user_input)
+            if rag_ctx:
+                system_content += rag_ctx
+                logger.info(f"[Planner] RAG 注入: {len(rag_ctx)} 字符")
+        except Exception:
+            pass  #RAG 不可用时静默降级
+        
         # 调用 LLM 生成任务计划（纯文本，不调工具）
         messages = [
-            {"role": "system", "content": self.system_prompt},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": user_input}
         ]
         
@@ -217,9 +228,33 @@ class PlannerAgent(BaseAgent):
             return self._template_io_anomaly(user_input)
         
         # 场景 D: 僵尸进程
-        if any(keyword in input_lower for keyword in ["僵尸", "zombie", "进程"]):
+        if any(keyword in input_lower for keyword in ["僵尸", "zombie"]):
             return self._template_zombie_cleanup(user_input)
-        
+
+        # 场景 E: 服务故障
+        if any(keyword in input_lower for keyword in ["服务", "挂了", "宕机", "启动", "重启", "nginx", "apache"]):
+            return self._template_service_recovery(user_input)
+
+        # 场景 F: 安全审计
+        if any(keyword in input_lower for keyword in ["安全", "审计", "巡检", "扫描"]):
+            return self._template_security_audit(user_input)
+
+        # 场景 G: OOM
+        if any(keyword in input_lower for keyword in ["oom", "内存不足", "内存溢出", "内存爆了", "内存满"]):
+            return self._template_oom_diagnosis(user_input)
+
+        # 场景 H: 网络
+        if any(keyword in input_lower for keyword in ["网络", "连不上", "不通", "ping", "dns"]):
+            return self._template_network_diagnosis(user_input)
+
+        # 场景 I: Swap
+        if any(keyword in input_lower for keyword in ["swap", "交换", "卡顿", "卡", "慢", "换页"]):
+            return self._template_swap_diagnosis(user_input)
+
+        # 场景 J: FD 泄漏
+        if any(keyword in input_lower for keyword in ["fd", "句柄", "打开文件", "too many open"]):
+            return self._template_fd_leak(user_input)
+
         # 默认：系统诊断
         return self._template_system_diagnosis(user_input)
     
@@ -303,6 +338,103 @@ class PlannerAgent(BaseAgent):
                 TaskStep(id=4, tool="process_top_cpu", description="查看 CPU 占用最高的进程", 
                         params={"top_n": 5}, depends_on=[1]),
                 TaskStep(id=5, tool="system_failed_services", description="检查失败的服务", params={}, depends_on=[1])
+            ],
+            user_input=user_input
+        )
+
+    def _template_service_recovery(self, user_input: str) -> TaskPlan:
+        """服务故障自愈模板"""
+        return TaskPlan(
+            intent=PlanType.SERVICE_RECOVERY,
+            strategy="确认状态→查看日志→重启→验证端口",
+            steps=[
+                TaskStep(id=1, tool="service_control", description="检查服务状态",
+                        params={"service": "nginx", "action": "status"}),
+                TaskStep(id=2, tool="system_journal_tail", description="查看服务最近日志",
+                        params={"service": "nginx", "lines": 50}, depends_on=[1]),
+                TaskStep(id=3, tool="service_control", description="重启服务",
+                        params={"service": "nginx", "action": "restart"}, depends_on=[2]),
+                TaskStep(id=4, tool="service_control", description="确认恢复",
+                        params={"service": "nginx", "action": "status"}, depends_on=[3]),
+                TaskStep(id=5, tool="network_listening_ports", description="验证监听端口",
+                        params={}, depends_on=[4])
+            ],
+            user_input=user_input
+        )
+
+    def _template_security_audit(self, user_input: str) -> TaskPlan:
+        """安全基线审计模板"""
+        return TaskPlan(
+            intent=PlanType.SECURITY_AUDIT,
+            strategy="7项安全基线审计: 用户→SUID→crontab→内核→密码→认证→会话",
+            steps=[
+                TaskStep(id=1, tool="security_user_audit", description="审计用户权限", params={}),
+                TaskStep(id=2, tool="security_suid_scan", description="扫描SUID", params={}),
+                TaskStep(id=3, tool="security_crontab_audit", description="审计定时任务", params={}),
+                TaskStep(id=4, tool="security_kernel_modules", description="检查内核模块", params={}),
+                TaskStep(id=5, tool="security_password_policy", description="检查密码策略", params={}),
+                TaskStep(id=6, tool="security_auth_failures", description="查看认证失败", params={}),
+                TaskStep(id=7, tool="security_active_sessions", description="检查活跃会话", params={})
+            ],
+            user_input=user_input
+        )
+
+    def _template_oom_diagnosis(self, user_input: str) -> TaskPlan:
+        """OOM 排查模板"""
+        return TaskPlan(
+            intent=PlanType.OOM_DIAGNOSIS,
+            strategy="OOM历史→内存TOP→Swap→内存总览",
+            steps=[
+                TaskStep(id=1, tool="memory_oom_history", description="查看OOM历史", params={}),
+                TaskStep(id=2, tool="process_top_memory", description="内存TOP10",
+                        params={"top_n": 10}),
+                TaskStep(id=3, tool="swap_info", description="查看Swap", params={}),
+                TaskStep(id=4, tool="memory_info", description="内存总览", params={})
+            ],
+            user_input=user_input
+        )
+
+    def _template_network_diagnosis(self, user_input: str) -> TaskPlan:
+        """网络诊断模板"""
+        return TaskPlan(
+            intent=PlanType.NETWORK_DIAGNOSIS,
+            strategy="ping→DNS→端口→TCP重传→网卡",
+            steps=[
+                TaskStep(id=1, tool="network_ping", description="连通性测试", params={}),
+                TaskStep(id=2, tool="network_dns_check", description="DNS检查",
+                        params={"domain": "baidu.com"}),
+                TaskStep(id=3, tool="network_listening_ports", description="监听端口", params={}),
+                TaskStep(id=4, tool="network_tcp_retrans", description="TCP重传率", params={}),
+                TaskStep(id=5, tool="network_interface_stats", description="网卡状态", params={})
+            ],
+            user_input=user_input
+        )
+
+    def _template_swap_diagnosis(self, user_input: str) -> TaskPlan:
+        """Swap 抖动诊断模板"""
+        return TaskPlan(
+            intent=PlanType.SWAP_DIAGNOSIS,
+            strategy="Swap→内存→TOP进程→VMstat→OOM历史",
+            steps=[
+                TaskStep(id=1, tool="swap_info", description="Swap状态", params={}),
+                TaskStep(id=2, tool="memory_info", description="内存总览", params={}),
+                TaskStep(id=3, tool="process_top_memory", description="内存TOP10",
+                        params={"top_n": 10}),
+                TaskStep(id=4, tool="vmstat_stats", description="虚拟内存统计", params={}),
+                TaskStep(id=5, tool="memory_oom_history", description="OOM历史", params={})
+            ],
+            user_input=user_input
+        )
+
+    def _template_fd_leak(self, user_input: str) -> TaskPlan:
+        """FD 泄漏排查模板"""
+        return TaskPlan(
+            intent=PlanType.FD_LEAK,
+            strategy="打开文件→系统FD上限→进程详情",
+            steps=[
+                TaskStep(id=1, tool="security_open_files", description="查看打开文件", params={}),
+                TaskStep(id=2, tool="system_info", description="系统信息", params={}),
+                TaskStep(id=3, tool="process_top_cpu", description="TOP进程", params={"top_n": 10})
             ],
             user_input=user_input
         )

@@ -14,6 +14,12 @@ class PlanType(str, Enum):
     CONFIG_DRIFT = "config_drift"
     IO_ANOMALY = "io_anomaly"
     ZOMBIE_CLEANUP = "zombie_cleanup"
+    SERVICE_RECOVERY = "service_recovery"
+    SECURITY_AUDIT = "security_audit"
+    OOM_DIAGNOSIS = "oom_diagnosis"
+    NETWORK_DIAGNOSIS = "network_diagnosis"
+    SWAP_DIAGNOSIS = "swap_diagnosis"
+    FD_LEAK = "fd_leak"
     SYSTEM_DIAGNOSIS = "system_diagnosis"
     CUSTOM = "custom"
 
