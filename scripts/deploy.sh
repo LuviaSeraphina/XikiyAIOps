@@ -404,12 +404,22 @@ else
   log_info "用户 xikiy 已存在"
 fi
 
-#加入 sudo 组 — restricted 工具需要 sudo 组成员权限
-if ! groups xikiy 2>/dev/null | grep -qw sudo; then
-  sudo usermod -aG sudo xikiy
-  log_ok "xikiy 已加入 sudo 组"
+#加入提权组 — restricted 工具需要 sudo 组成员权限
+# Debian/Ubuntu → sudo 组, RHEL/麒麟 → wheel 组
+_SUDO_GROUP=""
+if getent group sudo >/dev/null 2>&1; then
+  _SUDO_GROUP="sudo"
+elif getent group wheel >/dev/null 2>&1; then
+  _SUDO_GROUP="wheel"
+fi
+
+if [ -n "$_SUDO_GROUP" ] && ! groups xikiy 2>/dev/null | grep -qw "$_SUDO_GROUP"; then
+  sudo usermod -aG "$_SUDO_GROUP" xikiy
+  log_ok "xikiy 已加入 $_SUDO_GROUP 组"
+elif [ -n "$_SUDO_GROUP" ]; then
+  log_info "xikiy 已在 $_SUDO_GROUP 组"
 else
-  log_info "xikiy 已在 sudo 组"
+  log_warn "未找到 sudo/wheel 组, 跳过组添加 (sudoers 文件兜底)"
 fi
 
 #配置 sudoers 白名单
