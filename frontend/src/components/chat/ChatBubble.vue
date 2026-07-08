@@ -23,7 +23,7 @@
 
       <!-- 工具执行中 -->
       <div v-if="hasRunningTools && !message.content" class="msg-thinking tool-mode">
-        <span class="thinking-label">🔧 正在调用: {{ runningToolNames }}</span>
+        <span class="thinking-label">正在调用: {{ runningToolNames }}</span>
       </div>
 
       <!-- 正文 -->
@@ -108,10 +108,12 @@ const runningToolNames = computed(() => {
 .msg {
   display: flex;
   gap: 14px;
-  padding: 18px 24px;
+  padding: 20px 24px;
+  transition: background var(--dur-base) var(--ease-spring);
 }
 .msg.assistant {
   background: var(--bg-elevated);
+  border-radius: 0;
 }
 .msg + .msg {
   border-top: 1px solid var(--border-subtle);
@@ -120,18 +122,18 @@ const runningToolNames = computed(() => {
 /* ── Avatar ── */
 .msg-avatar {
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
-  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
   margin-top: 2px;
 }
-.msg-avatar.user      { background: var(--color-accent-soft); color: var(--color-accent-text); }
-.msg-avatar.assistant  { background: #eef2ff; color: #4d6bfe; }
+.msg-avatar.user      { background: var(--color-accent-soft); color: var(--color-accent); }
+.msg-avatar.assistant  { background: rgba(107, 138, 255, 0.1); color: var(--color-accent); }
 .msg-avatar.system     { background: var(--color-warning-soft); color: var(--color-warning); }
-.msg-avatar.tool       { background: var(--bg-hover); color: var(--text-secondary); }
+.msg-avatar.tool       { background: var(--bg-hover); color: var(--text-tertiary); }
 
 /* ── Main ── */
 .msg-main {
@@ -144,7 +146,7 @@ const runningToolNames = computed(() => {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 .msg-role {
   font-size: 13px;
@@ -154,35 +156,32 @@ const runningToolNames = computed(() => {
 .msg-time {
   font-size: 11px;
   color: var(--text-tertiary);
+  font-family: var(--font-mono);
 }
 
 /* ── Thinking ── */
 .msg-thinking {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 0;
+  gap: 5px;
+  padding: 6px 0;
 }
 .thinking-dot {
   width: 5px; height: 5px;
   border-radius: 50%;
-  background: var(--text-tertiary);
-  animation: dotPulse 1.4s infinite ease-in-out both;
+  background: var(--color-accent);
+  animation: dot-bounce 1.4s infinite ease-in-out both;
 }
 .thinking-dot:nth-child(1) { animation-delay: 0s; }
 .thinking-dot:nth-child(2) { animation-delay: 0.16s; }
 .thinking-dot:nth-child(3) { animation-delay: 0.32s; }
-@keyframes dotPulse {
-  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
-  40% { opacity: 1; transform: scale(1); }
-}
 .thinking-label {
   font-size: 13px;
   color: var(--text-tertiary);
   margin-left: 6px;
 }
 .msg-thinking.tool-mode .thinking-label {
-  color: var(--color-accent-text);
+  color: var(--color-accent);
   font-weight: 500;
 }
 
@@ -198,71 +197,80 @@ const runningToolNames = computed(() => {
 .msg-content :deep(ul),
 .msg-content :deep(ol)         { padding-left: 22px; margin: 0 0 10px; }
 .msg-content :deep(li)         { margin-bottom: 3px; }
-.msg-content :deep(strong)     { font-weight: 600; }
-.msg-content :deep(h1),
-.msg-content :deep(h2),
-.msg-content :deep(h3)         { margin: 16px 0 8px; font-weight: 600; }
-.msg-content :deep(h1)         { font-size: 19px; }
-.msg-content :deep(h2)         { font-size: 17px; }
-.msg-content :deep(h3)         { font-size: 15px; }
-.msg-content :deep(blockquote) {
-  border-left: 3px solid var(--color-accent);
-  padding: 2px 0 2px 12px;
-  margin: 10px 0;
-  color: var(--text-secondary);
-}
-.msg-content :deep(table) {
-  border-collapse: collapse; margin: 10px 0; font-size: 13px;
-}
-.msg-content :deep(th),
-.msg-content :deep(td) {
-  border: 1px solid var(--border-default); padding: 6px 12px; text-align: left;
-}
-.msg-content :deep(th) {
-  background: var(--bg-hover); font-weight: 600;
+
+.msg-content :deep(code) {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: var(--bg-code);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
 }
 .msg-content :deep(pre) {
   background: var(--bg-code);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 14px 16px;
+  margin: 8px 0 12px;
   overflow-x: auto;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.5;
-  margin: 10px 0;
-}
-.msg-content :deep(code) {
-  font-family: var(--font-mono);
-  font-size: 0.88em;
-  background: var(--bg-code);
-  padding: 2px 5px;
-  border-radius: 4px;
-  border: 1px solid var(--border-subtle);
 }
 .msg-content :deep(pre code) {
-  background: none; padding: 0; border: none;
+  background: none;
+  border: none;
+  padding: 0;
+}
+.msg-content :deep(blockquote) {
+  border-left: 3px solid var(--color-accent);
+  padding-left: 14px;
+  margin: 8px 0;
+  color: var(--text-secondary);
+}
+.msg-content :deep(table) {
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.msg-content :deep(th) {
+  background: var(--bg-surface);
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-default);
+}
+.msg-content :deep(td) {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.msg-content :deep(a) {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent-soft);
+}
+.msg-content :deep(a:hover) {
+  text-decoration-color: var(--color-accent);
 }
 
 /* ── Cursor ── */
 .cursor {
   display: inline-block;
-  width: 2px; height: 16px;
+  width: 2px;
+  height: 16px;
   background: var(--color-accent);
-  margin-left: 1px;
+  margin-left: 2px;
   vertical-align: text-bottom;
-  animation: blink 1s infinite;
-}
-@keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
+  animation: cursor-blink 1s infinite;
+  border-radius: 1px;
+  box-shadow: 0 0 6px var(--color-accent-glow);
 }
 
-/* ── Tool cards ── */
+/* ── Tools ── */
 .msg-tools {
-  margin-top: 10px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  margin-top: 8px;
 }
 </style>

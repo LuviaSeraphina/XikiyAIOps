@@ -103,21 +103,21 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 20px;
+  padding: 10px 20px;
   background: var(--color-danger-soft);
   color: var(--color-danger);
   font-size: 13px;
-  border-top: 1px solid rgba(239, 68, 68, 0.15);
+  border-top: 1px solid rgba(248, 113, 113, 0.15);
 }
 .error-bar button {
-  padding: 3px 12px;
+  padding: 4px 14px;
   border: 1px solid var(--color-danger);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-danger);
   font-size: 12px;
   cursor: pointer;
-  transition: all 120ms;
+  transition: all var(--dur-quick) var(--ease-spring);
 }
 .error-bar button:hover {
   background: var(--color-danger);

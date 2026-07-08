@@ -2,7 +2,7 @@
   <div class="tool-card" :class="[`status-${toolCall.status}`]">
     <!-- Header -->
     <div class="tool-header" @click="expanded = !expanded">
-      <span class="tool-status-icon">{{ statusIcon }}</span>
+      <span class="tool-status-icon" :class="`si-${toolCall.status}`">{{ statusIcon }}</span>
       <code class="tool-name">{{ toolCall.tool_name }}</code>
       <span v-if="toolCall.risk_level" class="risk-tag" :class="`risk-${toolCall.risk_level}`">
         {{ riskLabel }}
@@ -211,12 +211,12 @@ const summaryFields = computed<SummaryField[]>(() => {
 
 <style scoped>
 .tool-card {
-  background: var(--bg-code);
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   overflow: hidden;
-  transition: border-color var(--dur-quick);
+  transition: border-color var(--dur-quick) var(--ease-spring);
 }
 .tool-card:hover {
   border-color: var(--border-default);
@@ -229,13 +229,18 @@ const summaryFields = computed<SummaryField[]>(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 9px 14px;
   cursor: pointer;
   user-select: none;
 }
 .tool-status-icon {
   font-size: 10px;
 }
+.si-pending  { color: var(--text-tertiary); }
+.si-running  { color: var(--color-accent); animation: glow-pulse 1.5s infinite; }
+.si-done     { color: var(--color-safe); }
+.si-error    { color: var(--color-danger); }
+
 .tool-name {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -244,8 +249,8 @@ const summaryFields = computed<SummaryField[]>(() => {
 }
 .risk-tag {
   font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 4px;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
   font-weight: 600;
 }
 .risk-read_only  { background: var(--color-safe-soft); color: var(--color-safe); }
@@ -254,7 +259,7 @@ const summaryFields = computed<SummaryField[]>(() => {
 
 .expand-icon {
   flex-shrink: 0;
-  transition: transform var(--dur-quick);
+  transition: transform var(--dur-quick) var(--ease-spring);
   color: var(--text-tertiary);
 }
 .expand-icon.expanded {
@@ -263,33 +268,35 @@ const summaryFields = computed<SummaryField[]>(() => {
 
 .tool-detail {
   border-top: 1px solid var(--border-subtle);
-  padding: 10px 12px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  background: var(--bg-code);
 }
 .detail-section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 .detail-label {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-tertiary);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.6px;
+  font-weight: 600;
 }
 /* ── Summary grid ── */
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 4px 12px;
+  gap: 4px 14px;
 }
 .summary-item {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  padding: 3px 0;
+  padding: 4px 0;
   border-bottom: 1px dotted var(--border-subtle);
 }
 .summary-label {
@@ -311,9 +318,10 @@ const summaryFields = computed<SummaryField[]>(() => {
   font-size: 11px; color: var(--text-tertiary);
   cursor: pointer; padding: 2px 0;
   display: flex; align-items: center; gap: 4px;
+  transition: color var(--dur-quick);
 }
 .raw-toggle:hover { color: var(--text-secondary); }
-.raw-arrow { transition: transform var(--dur-quick); }
+.raw-arrow { transition: transform var(--dur-quick) var(--ease-spring); }
 .raw-arrow.open { transform: rotate(90deg); }
 .raw-block { max-height: 200px; overflow-y: auto; }
 
@@ -323,8 +331,9 @@ const summaryFields = computed<SummaryField[]>(() => {
   line-height: 1.5;
   color: var(--text-secondary);
   background: var(--bg-root);
-  padding: 8px 10px;
-  border-radius: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-all;
@@ -338,5 +347,15 @@ const summaryFields = computed<SummaryField[]>(() => {
 @keyframes runningSlide {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(100%); }
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all var(--dur-base) var(--ease-spring);
+}
+.slide-up-enter-from,
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 </style>

@@ -11,7 +11,7 @@
     <!-- 侧边栏 -->
     <AppSidebar v-model:collapsed="sidebarCollapsed" />
 
-    <!-- 主区域：无顶部栏，内容直接铺满 -->
+    <!-- 主区域 -->
     <div class="main-area" :class="{ collapsed: sidebarCollapsed }">
       <main class="main-content">
         <router-view v-slot="{ Component, route }">
@@ -59,21 +59,18 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 8px;
-  background: var(--color-danger);
+  padding: 10px;
+  background: linear-gradient(90deg, rgba(248, 113, 113, 0.95), rgba(239, 68, 68, 0.95));
   color: #fff;
   font-size: 13px;
   font-weight: 500;
+  backdrop-filter: blur(12px);
 }
 .offline-dot {
   width: 7px; height: 7px;
   border-radius: 50%;
   background: #fff;
-  animation: pulse 1.5s infinite;
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  animation: glow-pulse 1.5s infinite;
 }
 
 /* ── 主区域 ── */
@@ -82,7 +79,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: var(--bg-root);
+  background: transparent;
 }
 
 .main-content {
@@ -95,10 +92,23 @@ onUnmounted(() => {
 /* ── 过渡动画 ── */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 150ms ease;
+  transition: opacity var(--dur-quick) var(--ease-spring);
 }
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all var(--dur-gentle) var(--ease-spring);
+}
+.slide-up-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 </style>

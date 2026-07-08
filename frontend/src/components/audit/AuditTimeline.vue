@@ -7,7 +7,7 @@
 
     <!-- 空状态 -->
     <div v-else-if="!items || items.length === 0" class="state-box">
-      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.35">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.3">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
         <polyline points="14 2 14 8 20 8"/>
       </svg>
@@ -24,7 +24,6 @@
         @click="$emit('select', item)"
       >
         <span class="dot" :style="{ background: riskColor(item.risk_level) }" />
-        <!-- v2: 异常标记 -->
         <span v-if="item.is_anomaly" class="anomaly-dot" title="异常记录">⚠</span>
         <div class="row-card">
           <div class="row-top">
@@ -127,17 +126,18 @@ function formatTime(ts: string): string {
 .timeline-row {
   display: flex;
   gap: 10px;
-  padding: 8px 14px;
+  padding: 10px 16px;
   cursor: pointer;
   border-left: 3px solid transparent;
-  transition: background 120ms;
+  transition: background var(--dur-quick) var(--ease-spring);
 }
-.timeline-row:hover { background: var(--bg-hover); }
+.timeline-row:hover {
+  background: var(--bg-hover);
+}
 .timeline-row.selected {
   background: var(--color-accent-soft);
   border-left-color: var(--color-accent);
 }
-/* v2: 异常记录高亮 */
 .timeline-row.row-anomaly {
   border-left-color: var(--color-danger);
 }
@@ -148,7 +148,6 @@ function formatTime(ts: string): string {
   margin-top: 5px;
   flex-shrink: 0;
 }
-/* v2.1: 异常标记图标 */
 .anomaly-dot {
   font-size: 12px;
   line-height: 1;
@@ -163,13 +162,13 @@ function formatTime(ts: string): string {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
 }
 .risk-label {
   font-size: 10px;
-  font-weight: 600;
-  padding: 0 5px;
-  border-radius: 3px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
   line-height: 18px;
 }
 .risk-read_only  { background: var(--color-safe-soft); color: var(--color-safe); }
@@ -180,12 +179,13 @@ function formatTime(ts: string): string {
   font-size: 11px;
   color: var(--text-tertiary);
   margin-left: auto;
+  font-family: var(--font-mono);
 }
 
 .row-summary {
   font-size: 13px;
   color: var(--text-primary);
-  margin: 0 0 3px;
+  margin: 0 0 4px;
   line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -198,10 +198,15 @@ function formatTime(ts: string): string {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 2px;
+  gap: 4px;
 }
-.meta-sep { margin: 0 2px; }
-.meta-danger { color: var(--color-danger); }
+.meta-sep {
+  color: var(--text-placeholder);
+}
+.meta-danger {
+  color: var(--color-danger);
+  font-weight: 500;
+}
 
 /* ── Pager ── */
 .pager {
@@ -209,31 +214,30 @@ function formatTime(ts: string): string {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: 12px;
+  padding: 14px;
   border-top: 1px solid var(--border-subtle);
-  flex-shrink: 0;
 }
 .page-btn {
-  padding: 4px 14px;
+  padding: 5px 14px;
   border: 1px solid var(--border-default);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--bg-elevated);
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
-  transition: all 120ms;
+  transition: all var(--dur-quick) var(--ease-spring);
 }
 .page-btn:hover:not(:disabled) {
   border-color: var(--color-accent);
-  color: var(--color-accent-text);
+  color: var(--color-accent);
 }
 .page-btn:disabled {
-  opacity: 0.35;
+  opacity: 0.3;
   cursor: not-allowed;
 }
 .page-info {
   font-size: 12px;
   color: var(--text-tertiary);
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
 }
 </style>

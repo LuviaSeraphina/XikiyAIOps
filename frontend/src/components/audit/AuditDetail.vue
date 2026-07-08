@@ -334,7 +334,7 @@ function formatShortTime(iso: string): string {
 .detail-panel {
   height: 100%;
   overflow-y: auto;
-  padding: 18px;
+  padding: 20px;
 }
 
 .state-box {
@@ -352,7 +352,7 @@ function formatShortTime(iso: string): string {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 .detail-header h3 {
   margin: 0;
@@ -363,9 +363,9 @@ function formatShortTime(iso: string): string {
 
 .risk-badge {
   font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 4px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
 }
 .risk-read_only  { background: var(--color-safe-soft); color: var(--color-safe); }
 .risk-restricted { background: var(--color-warning-soft); color: var(--color-warning); }
@@ -375,7 +375,7 @@ function formatShortTime(iso: string): string {
 .stages {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 /* ── Fields ── */
@@ -388,32 +388,34 @@ function formatShortTime(iso: string): string {
 .field {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 .field-key {
   font-size: 10px;
   color: var(--text-tertiary);
   text-transform: uppercase;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.5px;
+  font-weight: 600;
 }
 .field-val {
   font-size: 13px;
   color: var(--text-primary);
 }
 .field-val.quote {
-  padding: 6px 10px;
+  padding: 8px 12px;
   background: var(--bg-root);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   border-left: 3px solid var(--color-accent);
   color: var(--text-secondary);
+  font-size: 13px;
 }
 .tag-row { display: flex; flex-wrap: wrap; gap: 4px; }
 .tag {
   display: inline-block;
   font-size: 11px;
-  padding: 2px 7px;
+  padding: 2px 8px;
   background: var(--bg-hover);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-family: var(--font-mono);
 }
@@ -425,17 +427,18 @@ function formatShortTime(iso: string): string {
   line-height: 1.5;
   background: var(--bg-root);
   border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
   margin: 2px 0 0;
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-all;
   max-height: 200px;
   overflow-y: auto;
+  color: var(--text-secondary);
 }
 .code-error {
-  border-color: var(--color-danger-soft);
+  border-color: rgba(248, 113, 113, 0.2);
   color: var(--color-danger);
 }
 
@@ -451,15 +454,15 @@ function formatShortTime(iso: string): string {
 }
 .anomaly-badge {
   font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 4px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
 }
-.anomaly-jailbreak_blocked { background: #fce4ec; color: #c62828; }
-.anomaly-injection_blocked { background: #fce4ec; color: #c62828; }
-.anomaly-dangerous_blocked { background: #fff3e0; color: #e65100; }
-.anomaly-security_blocked  { background: #fff3e0; color: #e65100; }
-.anomaly-tool_error        { background: #fff8e1; color: #f57f17; }
+.anomaly-jailbreak_blocked { background: var(--color-danger-soft); color: var(--color-danger); }
+.anomaly-injection_blocked { background: var(--color-danger-soft); color: var(--color-danger); }
+.anomaly-dangerous_blocked { background: var(--color-warning-soft); color: var(--color-warning); }
+.anomaly-security_blocked  { background: var(--color-warning-soft); color: var(--color-warning); }
+.anomaly-tool_error        { background: var(--color-warning-soft); color: var(--color-warning); }
 
 /* ── 阶段 5: 危险标记 ── */
 .stage-num-danger {
@@ -467,15 +470,11 @@ function formatShortTime(iso: string): string {
   color: var(--color-danger) !important;
 }
 
-/* ══════════════════════════════════════════
-   v2.1: 异常回溯面板
-   ══════════════════════════════════════════ */
-
 /* ── 回溯面板 ── */
 .traceback-panel {
-  margin-bottom: 14px;
+  margin-bottom: 16px;
   border: 1px solid var(--border-default);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   background: var(--bg-surface);
 }
@@ -483,7 +482,7 @@ function formatShortTime(iso: string): string {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 12px 16px;
   background: var(--bg-sidebar);
   border-bottom: 1px solid var(--border-subtle);
   font-size: 13px;
@@ -497,12 +496,13 @@ function formatShortTime(iso: string): string {
   background: none;
   border: none;
   cursor: pointer;
-  padding: 2px 8px;
-  border-radius: 4px;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  transition: background var(--dur-quick) var(--ease-spring);
 }
 .traceback-toggle:hover { background: var(--color-accent-soft); }
 .traceback-body {
-  padding: 14px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -525,7 +525,7 @@ function formatShortTime(iso: string): string {
   flex-shrink: 0;
 }
 .flow-badge {
-  width: 26px; height: 26px;
+  width: 28px; height: 28px;
   border-radius: 50%;
   background: var(--bg-hover);
   display: flex;
@@ -535,6 +535,7 @@ function formatShortTime(iso: string): string {
   font-weight: 700;
   color: var(--text-secondary);
   border: 2px solid var(--border-subtle);
+  font-family: var(--font-mono);
 }
 .flow-badge.flow-anomaly {
   background: var(--color-danger-soft);
@@ -565,9 +566,9 @@ function formatShortTime(iso: string): string {
 /* ── 回溯指引 ── */
 .guidance-box {
   background: var(--color-danger-soft);
-  border: 1px solid var(--color-danger);
-  border-radius: 8px;
-  padding: 12px;
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  border-radius: var(--radius-md);
+  padding: 14px;
 }
 .guidance-title {
   font-size: 13px;
@@ -592,6 +593,7 @@ function formatShortTime(iso: string): string {
   font-size: 10px;
   color: var(--text-tertiary);
   text-transform: uppercase;
+  font-weight: 600;
 }
 .guidance-val {
   font-size: 12px;
@@ -633,8 +635,8 @@ function formatShortTime(iso: string): string {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   background: var(--bg-root);
 }
@@ -656,11 +658,11 @@ function formatShortTime(iso: string): string {
 }
 .related-anomaly-tag {
   font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
   background: var(--color-danger);
   color: #fff;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 /* ── 回溯加载按钮 ── */
@@ -669,14 +671,14 @@ function formatShortTime(iso: string): string {
 }
 .btn-traceback {
   width: 100%;
-  padding: 8px 0;
-  background: var(--bg-sidebar);
+  padding: 10px 0;
+  background: var(--bg-surface);
   border: 1px dashed var(--border-default);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   color: var(--color-accent);
   cursor: pointer;
-  transition: background 150ms;
+  transition: all var(--dur-quick) var(--ease-spring);
 }
 .btn-traceback:hover {
   background: var(--color-accent-soft);
@@ -694,8 +696,8 @@ function formatShortTime(iso: string): string {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   background: var(--bg-root);
 }
@@ -704,19 +706,20 @@ function formatShortTime(iso: string): string {
 }
 .te-name {
   font-family: var(--font-mono);
-  font-weight: 500;
   color: var(--text-primary);
+  font-weight: 500;
+  min-width: 120px;
 }
 .te-status {
-  font-weight: 700;
-  font-size: 14px;
+  flex-shrink: 0;
+  font-size: 12px;
 }
 .te-output {
   color: var(--text-tertiary);
-  font-size: 11px;
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 11px;
 }
 </style>

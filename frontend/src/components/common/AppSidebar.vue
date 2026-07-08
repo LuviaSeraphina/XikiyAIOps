@@ -3,10 +3,10 @@
     <!-- Logo + 折叠按钮 -->
     <div class="sidebar-brand">
       <div class="brand-icon">
-        <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
-          <rect width="32" height="32" rx="8" fill="var(--color-accent)" />
-          <path d="M16 6L8 12v8l8 6 8-6v-8L16 6z" stroke="#fff" stroke-width="1.8" stroke-linejoin="round" fill="none" />
-          <circle cx="16" cy="16" r="3" fill="#fff" />
+        <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+          <rect width="32" height="32" rx="10" fill="var(--color-accent)" opacity="0.15" />
+          <path d="M16 6L8 12v8l8 6 8-6v-8L16 6z" stroke="var(--color-accent)" stroke-width="1.6" stroke-linejoin="round" fill="none" />
+          <circle cx="16" cy="16" r="3" fill="var(--color-accent)" />
         </svg>
       </div>
       <transition name="fade">
@@ -36,8 +36,14 @@
       >
         <span class="nav-icon" v-html="item.icon" />
         <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
+        <span v-if="currentRoute === item.path" class="nav-glow" />
       </router-link>
     </nav>
+
+    <!-- 底部版本信息 -->
+    <div class="sidebar-footer" v-if="!collapsed">
+      <span class="version-tag">v1.2.0</span>
+    </div>
   </aside>
 </template>
 
@@ -80,15 +86,25 @@ const navItems = [
 
 <style scoped>
 .sidebar {
+  /* ── Sidebar dark theme overrides ── */
+  --sb-bg: #1a1b26;
+  --sb-border: rgba(255, 255, 255, 0.06);
+  --sb-text: #e8e8f0;
+  --sb-text-muted: #8a8da0;
+  --sb-text-dim: #555870;
+  --sb-hover: rgba(255, 255, 255, 0.06);
+
   display: flex;
   flex-direction: column;
   width: var(--sidebar-width);
   height: 100vh;
-  background: #1e2029;
-  border-right: 1px solid rgba(255, 255, 255, 0.06);
-  transition: width var(--dur-gentle) var(--ease-out);
+  background: var(--sb-bg);
+  border-right: 1px solid var(--sb-border);
+  transition: width var(--dur-gentle) var(--ease-spring);
   flex-shrink: 0;
   overflow: hidden;
+  position: relative;
+  z-index: 10;
 }
 .sidebar.collapsed {
   width: var(--sidebar-collapsed);
@@ -99,8 +115,8 @@ const navItems = [
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 16px 14px;
+  border-bottom: 1px solid var(--sb-border);
 }
 .brand-icon {
   flex-shrink: 0;
@@ -109,13 +125,13 @@ const navItems = [
 .brand-name {
   font-size: 15px;
   font-weight: 700;
-  color: #fff;
+  color: var(--sb-text);
   letter-spacing: -0.3px;
   white-space: nowrap;
   flex: 1;
 }
 
-/* ── Collapse btn in brand row ── */
+/* ── Collapse btn ── */
 .collapse-btn {
   display: flex;
   align-items: center;
@@ -124,46 +140,62 @@ const navItems = [
   height: 28px;
   border: none;
   background: transparent;
-  color: #6a6d78;
-  border-radius: 6px;
+  color: var(--sb-text-dim);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   flex-shrink: 0;
-  transition: all var(--dur-quick) var(--ease-out);
+  transition: all var(--dur-quick) var(--ease-spring);
 }
 .collapse-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #c0c4d0;
+  background: var(--sb-hover);
+  color: var(--sb-text-muted);
 }
 
 /* ── Nav ── */
 .sidebar-nav {
   flex: 1;
-  padding: 8px;
+  padding: 10px 8px;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
 .nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border-radius: 8px;
-  color: #a0a4b0;
+  border-radius: var(--radius-md);
+  color: var(--sb-text-dim);
   text-decoration: none;
   font-size: 14px;
   font-weight: 450;
-  transition: all var(--dur-quick) var(--ease-out);
+  transition: all var(--dur-base) var(--ease-spring);
+  overflow: hidden;
 }
 .nav-item:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #e0e2e8;
+  background: var(--sb-hover);
+  color: var(--sb-text-muted);
 }
 .nav-item.active {
   background: rgba(77, 107, 254, 0.15);
   color: #fff;
 }
+
+/* Active glow indicator */
+.nav-glow {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  border-radius: 0 3px 3px 0;
+  background: var(--color-accent);
+  box-shadow: 0 0 12px var(--color-accent-glow);
+}
+
 .nav-icon {
   display: flex;
   flex-shrink: 0;
@@ -175,10 +207,23 @@ const navItems = [
   overflow: hidden;
 }
 
+/* ── Footer ── */
+.sidebar-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--sb-border);
+}
+.version-tag {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--sb-text-dim);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
 /* ── Transition ── */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity var(--dur-quick) var(--ease-out);
+  transition: opacity var(--dur-quick) var(--ease-spring);
 }
 .fade-enter-from,
 .fade-leave-to {

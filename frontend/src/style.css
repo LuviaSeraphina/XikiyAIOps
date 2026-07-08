@@ -1,6 +1,6 @@
 /* ================================================================
-   XikiyAIOps Design Tokens — DeepSeek 风格：整洁、克制、以内容为中心
-   默认浅色主题，支持 prefers-color-scheme: dark 自动切换
+   XikiyAIOps Design Tokens — Light-first SRE Operations Console
+   Clean white main area + dark sidebar, accent blue + emerald
    ================================================================ */
 
 :root {
@@ -9,103 +9,74 @@
   --color-accent-soft: rgba(77, 107, 254, 0.08);
   --color-accent-hover: #3b5be6;
   --color-accent-text: #4d6bfe;
+  --color-accent-glow: rgba(77, 107, 254, 0.2);
 
   /* ── Semantic ── */
   --color-safe: #10b981;
   --color-safe-soft: rgba(16, 185, 129, 0.08);
+  --color-safe-glow: rgba(16, 185, 129, 0.15);
   --color-warning: #f59e0b;
   --color-warning-soft: rgba(245, 158, 11, 0.08);
   --color-danger: #ef4444;
   --color-danger-soft: rgba(239, 68, 68, 0.08);
 
   /* ── Surfaces (Light) ── */
-  --bg-root: #f5f6f8;
-  --bg-sidebar: #f0f1f4;
+  --bg-root: #f8f9fc;
+  --bg-sidebar: #1a1b26;
   --bg-elevated: #ffffff;
   --bg-surface: #ffffff;
-  --bg-hover: #f0f1f4;
-  --bg-input: #f5f6f8;
-  --bg-code: #f8f9fb;
+  --bg-hover: #f0f1f5;
+  --bg-input: #f5f6fa;
+  --bg-code: #f5f6fa;
 
   /* ── Text ── */
-  --text-primary: #1a1a2e;
-  --text-secondary: #5a5d6b;
-  --text-tertiary: #9a9dab;
-  --text-placeholder: #b0b3bf;
+  --text-primary: #1a1b2e;
+  --text-secondary: #5a5d72;
+  --text-tertiary: #9a9db0;
+  --text-placeholder: #c0c3d0;
   --text-inverse: #ffffff;
 
   /* ── Borders ── */
-  --border-subtle: #e8e9ed;
-  --border-default: #dcdde3;
-  --border-emphasis: #c4c6d0;
+  --border-subtle: rgba(0, 0, 0, 0.04);
+  --border-default: rgba(0, 0, 0, 0.08);
+  --border-emphasis: rgba(0, 0, 0, 0.15);
 
-  /* ── Shadows (subtle, DeepSeek 几乎不用阴影) ── */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.08);
+  /* ── Shadows ── */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
+  --shadow-glow: 0 0 20px var(--color-accent-glow);
 
   /* ── Layout ── */
-  --sidebar-width: 220px;
-  --sidebar-collapsed: 60px;
-  --header-height: 0px; /* DeepSeek 风格：无顶部栏，sidebar 即导航 */
+  --sidebar-width: 228px;
+  --sidebar-collapsed: 64px;
+  --header-height: 0px;
   --chat-max-width: 740px;
   --content-padding: 24px;
 
-  /* ── Radius ── */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
+  /* ── Radius (generous squircles) ── */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-2xl: 32px;
   --radius-full: 9999px;
 
-  /* ── Transitions ── */
+  /* ── Transitions (spring-based) ── */
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 
   /* ── Durations ── */
   --dur-instant: 80ms;
   --dur-quick: 150ms;
-  --dur-base: 200ms;
-  --dur-gentle: 300ms;
+  --dur-base: 250ms;
+  --dur-gentle: 400ms;
+  --dur-slow: 700ms;
 
   /* ── Typography ── */
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
-  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', 'JetBrains Mono', monospace;
-}
-
-/* ── Dark Mode (prefers-color-scheme) ── */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg-root: #1a1a2e;
-    --bg-sidebar: #16162a;
-    --bg-elevated: #222238;
-    --bg-surface: #222238;
-    --bg-hover: #2a2a42;
-    --bg-input: #2a2a42;
-    --bg-code: #1e1e36;
-
-    --text-primary: #e8e8f0;
-    --text-secondary: #a0a0b8;
-    --text-tertiary: #6a6a82;
-    --text-placeholder: #5a5a72;
-
-    --border-subtle: #2a2a42;
-    --border-default: #3a3a55;
-    --border-emphasis: #4a4a68;
-
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
-    --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
-
-    --color-accent: #6b8aff;
-    --color-accent-soft: rgba(107, 138, 255, 0.12);
-    --color-accent-hover: #8aa4ff;
-    --color-accent-text: #6b8aff;
-
-    --color-safe: #22c55e;
-    --color-warning: #f59e0b;
-    --color-danger: #f87171;
-  }
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
 }
 
 /* ================================================================
@@ -139,11 +110,11 @@ html, body {
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: var(--border-emphasis);
+  background: rgba(0, 0, 0, 0.12);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-tertiary);
+  background: rgba(0, 0, 0, 0.2);
 }
 
 /* ── Focus ── */
@@ -157,9 +128,11 @@ html, body {
 a {
   color: var(--color-accent-text);
   text-decoration: none;
+  transition: color var(--dur-quick) var(--ease-spring);
 }
 a:hover {
-  text-decoration: underline;
+  color: var(--color-accent-hover);
+  text-decoration: none;
 }
 
 /* ── Selection ── */
@@ -178,7 +151,7 @@ a:hover {
 .text-safe { color: var(--color-safe); }
 .text-accent { color: var(--color-accent-text); }
 
-/* ── Element Plus overrides (subtle) ── */
+/* ── Element Plus overrides (dark-first) ── */
 .el-button--primary {
   --el-button-bg-color: var(--color-accent);
   --el-button-border-color: var(--color-accent);
@@ -188,16 +161,15 @@ a:hover {
   --el-button-border-color: var(--color-accent-hover);
 }
 
-
 /* Card */
 .el-card {
-  background-color: var(--bg-surface) !important;
+  background-color: var(--bg-elevated) !important;
   border: 1px solid var(--border-default) !important;
   border-radius: var(--radius-lg) !important;
   color: var(--text-primary) !important;
   box-shadow: var(--shadow-sm) !important;
-  transition: border-color var(--dur-gentle) var(--ease-out),
-              box-shadow var(--dur-gentle) var(--ease-out);
+  transition: border-color var(--dur-gentle) var(--ease-spring),
+              box-shadow var(--dur-gentle) var(--ease-spring);
 }
 .el-card:hover {
   border-color: var(--border-emphasis) !important;
@@ -221,10 +193,10 @@ a:hover {
   color: var(--text-secondary) !important;
   border-radius: var(--radius-md) !important;
   margin: 2px 8px !important;
-  transition: all var(--dur-quick) var(--ease-out) !important;
+  transition: all var(--dur-quick) var(--ease-spring) !important;
 }
 .el-menu-item:hover {
-  background-color: var(--bg-surface-hover) !important;
+  background-color: var(--bg-hover) !important;
   color: var(--text-primary) !important;
 }
 .el-menu-item.is-active {
@@ -240,7 +212,7 @@ a:hover {
   border-color: var(--border-default) !important;
   border-radius: var(--radius-md) !important;
   box-shadow: none !important;
-  transition: all var(--dur-quick) var(--ease-out);
+  transition: all var(--dur-quick) var(--ease-spring);
 }
 .el-input__wrapper:hover,
 .el-textarea__inner:hover {
@@ -284,7 +256,7 @@ a:hover {
   font-weight: 600;
 }
 .el-select-dropdown__item:hover {
-  background-color: var(--bg-surface-hover) !important;
+  background-color: var(--bg-hover) !important;
 }
 
 /* Date picker */
@@ -303,7 +275,7 @@ a:hover {
 .el-button {
   border-radius: var(--radius-md) !important;
   font-weight: 500 !important;
-  transition: all var(--dur-quick) var(--ease-out) !important;
+  transition: all var(--dur-quick) var(--ease-spring) !important;
 }
 .el-button--default {
   background-color: var(--bg-elevated) !important;
@@ -318,8 +290,8 @@ a:hover {
 .el-button--primary {
   --el-button-bg-color: var(--color-accent);
   --el-button-border-color: var(--color-accent);
-  --el-button-hover-bg-color: #2563eb;
-  --el-button-hover-border-color: #2563eb;
+  --el-button-hover-bg-color: #8aa4ff;
+  --el-button-hover-border-color: #8aa4ff;
 }
 .el-button--danger {
   --el-button-bg-color: var(--color-danger);
@@ -360,7 +332,7 @@ a:hover {
   background-color: var(--bg-elevated) !important;
   border-color: var(--border-default) !important;
   color: var(--text-secondary) !important;
-  transition: all var(--dur-quick) var(--ease-out);
+  transition: all var(--dur-quick) var(--ease-spring);
 }
 .el-radio-button.is-active .el-radio-button__inner {
   background-color: var(--color-accent) !important;
@@ -373,8 +345,8 @@ a:hover {
 .el-table {
   --el-table-bg-color: transparent !important;
   --el-table-tr-bg-color: transparent !important;
-  --el-table-header-bg-color: rgba(255, 255, 255, 0.03) !important;
-  --el-table-row-hover-bg-color: var(--bg-surface-hover) !important;
+  --el-table-header-bg-color: rgba(255, 255, 255, 0.02) !important;
+  --el-table-row-hover-bg-color: var(--bg-hover) !important;
   --el-table-border-color: var(--border-subtle) !important;
   --el-table-text-color: var(--text-primary) !important;
   --el-table-header-text-color: var(--text-secondary) !important;
@@ -455,22 +427,13 @@ a:hover {
 
 /* Alert */
 .el-alert--error {
-  background-color: rgba(239, 68, 68, 0.15) !important;
-  border: 1px solid rgba(239, 68, 68, 0.3) !important;
+  background-color: var(--color-danger-soft) !important;
+  border: 1px solid rgba(248, 113, 113, 0.2) !important;
 }
 
 /* ============================================================
-   Utility Classes
-   ============================================================ */
-.text-safe    { color: var(--color-safe) !important; }
-.text-warning { color: var(--color-warning) !important; }
-.text-danger  { color: var(--color-danger) !important; }
-.text-accent  { color: var(--color-accent) !important; }
-.text-dim     { color: var(--text-tertiary) !important; }
-
-/* ============================================================
    Animation System
-   ============================================================ */
+   ================================================================ */
 
 /* ---- Keyframes ---- */
 @keyframes fade-in {
@@ -499,7 +462,7 @@ a:hover {
 }
 @keyframes pulse-attention {
   0%, 100% { box-shadow: 0 0 0 0 var(--color-accent-glow); }
-  50%      { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); }
+  50%      { box-shadow: 0 0 0 8px rgba(107, 138, 255, 0); }
 }
 @keyframes cursor-blink {
   0%, 100% { opacity: 1; }
@@ -512,11 +475,15 @@ a:hover {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 1; }
+}
 
 /* ---- Vue Transition classes ---- */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity var(--dur-gentle) var(--ease-out);
+  transition: opacity var(--dur-gentle) var(--ease-spring);
 }
 .fade-enter-from,
 .fade-leave-to {

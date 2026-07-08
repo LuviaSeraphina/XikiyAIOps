@@ -19,14 +19,15 @@ defineEmits<{ toggle: [] }>()
 
 <style scoped>
 .stage-block {
-  background: var(--bg-elevated);
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
-  transition: border-color 150ms;
+  transition: border-color var(--dur-base) var(--ease-spring),
+              background var(--dur-base) var(--ease-spring);
 }
 .stage-block.open {
-  border-color: var(--color-accent);
+  border-color: rgba(107, 138, 255, 0.2);
   background: var(--color-accent-soft);
 }
 
@@ -34,30 +35,32 @@ defineEmits<{ toggle: [] }>()
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 12px;
+  padding: 10px 14px;
   cursor: pointer;
   user-select: none;
   font-size: 13px;
+  transition: background var(--dur-quick) var(--ease-spring);
 }
 .stage-header:hover {
   background: var(--bg-hover);
 }
 
 .stage-num {
-  width: 20px; height: 20px;
-  border-radius: 5px;
+  width: 22px; height: 22px;
+  border-radius: var(--radius-sm);
   background: var(--bg-hover);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-secondary);
   flex-shrink: 0;
+  font-family: var(--font-mono);
 }
 .stage-num-sec {
-  background: var(--color-warning-soft);
-  color: var(--color-warning);
+  background: var(--color-warning-soft) !important;
+  color: var(--color-warning) !important;
 }
 
 .stage-name {
@@ -70,18 +73,19 @@ defineEmits<{ toggle: [] }>()
   font-size: 11px;
   color: var(--text-tertiary);
   white-space: nowrap;
+  font-family: var(--font-mono);
 }
 
 .arrow {
   flex-shrink: 0;
   color: var(--text-tertiary);
-  transition: transform 150ms;
+  transition: transform var(--dur-base) var(--ease-spring);
 }
 .arrow.rotated {
   transform: rotate(180deg);
 }
 
 .stage-body {
-  padding: 2px 12px 12px;
+  padding: 2px 14px 14px;
 }
 </style>

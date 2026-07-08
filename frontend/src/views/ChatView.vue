@@ -46,16 +46,21 @@
       <!-- 欢迎引导 -->
       <div v-if="store.messages.length === 0" class="welcome">
         <div class="welcome-hero">
-          <div class="welcome-icon">
-            <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
-              <rect width="64" height="64" rx="18" fill="rgba(59,130,246,0.1)" />
-              <path d="M32 16L18 26v12l14 10 14-10V26L32 16z" stroke="#3b82f6" stroke-width="2.5" stroke-linejoin="round" fill="none" />
-              <circle cx="32" cy="30" r="5" fill="#3b82f6" />
-              <path d="M22 40l10 7 10-7" stroke="#60a5fa" stroke-width="1.5" stroke-linecap="round" fill="none" />
+          <div class="welcome-icon-wrap">
+            <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+              <rect width="64" height="64" rx="20" fill="rgba(107,138,255,0.08)" />
+              <path d="M32 16L18 26v12l14 10 14-10V26L32 16z" stroke="var(--color-accent)" stroke-width="2" stroke-linejoin="round" fill="none" />
+              <circle cx="32" cy="30" r="5" fill="var(--color-accent)" opacity="0.6" />
+              <path d="M22 40l10 7 10-7" stroke="var(--color-accent)" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.4" />
             </svg>
           </div>
           <h1 class="welcome-title">麒麟安全运维 Agent</h1>
           <p class="welcome-desc">通过自然语言对话，感知系统状态、排查故障、执行运维操作。所有操作受安全护栏保护。</p>
+          <div class="welcome-hints">
+            <span class="hint-chip">查看系统状态</span>
+            <span class="hint-chip">检查安全告警</span>
+            <span class="hint-chip">分析 CPU 高负载</span>
+          </div>
         </div>
         <ChatInput :disabled="store.streaming" @send="store.sendMessage" />
       </div>
@@ -134,30 +139,38 @@ onMounted(() => {
 
 /* ── 历史侧栏 ── */
 .history-sidebar {
+  /* dark overrides for history sidebar */
+  --hs-bg: #1a1b26;
+  --hs-border: rgba(255, 255, 255, 0.06);
+  --hs-text: #e8e8f0;
+  --hs-text-muted: #8a8da0;
+  --hs-text-dim: #555870;
+  --hs-hover: rgba(255, 255, 255, 0.06);
+
   width: 0;
   overflow: hidden;
-  background: var(--bg-sidebar);
-  border-right: 1px solid var(--border-subtle);
-  transition: width var(--dur-gentle) var(--ease-out);
+  background: var(--hs-bg);
+  border-right: 1px solid var(--hs-border);
+  transition: width var(--dur-gentle) var(--ease-spring);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
 }
 .history-sidebar.open {
-  width: 250px;
+  width: 260px;
 }
 .history-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--hs-border);
 }
 .history-header h3 {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--hs-text);
 }
 .history-list {
   flex: 1;
@@ -166,29 +179,31 @@ onMounted(() => {
 }
 .history-item {
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background var(--dur-quick);
+  transition: background var(--dur-quick) var(--ease-spring);
 }
-.history-item:hover,
+.history-item:hover {
+  background: var(--hs-hover);
+}
 .history-item.active {
-  background: var(--bg-hover);
+  background: rgba(77, 107, 254, 0.15);
 }
 .history-title {
   display: block;
   font-size: 13px;
-  color: var(--text-primary);
+  color: var(--hs-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .history-time {
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--hs-text-dim);
 }
 .history-empty {
   text-align: center;
-  color: var(--text-tertiary);
+  color: var(--hs-text-dim);
   font-size: 13px;
   padding: 32px 0;
 }
@@ -199,7 +214,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: var(--bg-root);
+  background: transparent;
 }
 
 .chat-toolbar {
@@ -208,7 +223,8 @@ onMounted(() => {
   gap: 8px;
   padding: 10px 16px;
   background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
 }
 .session-id {
   font-size: 12px;
@@ -225,10 +241,10 @@ onMounted(() => {
   height: 34px;
   border: none;
   background: transparent;
-  color: var(--text-secondary);
-  border-radius: 8px;
+  color: var(--text-tertiary);
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all var(--dur-quick);
+  transition: all var(--dur-quick) var(--ease-spring);
 }
 .icon-btn:hover {
   background: var(--bg-hover);
@@ -247,28 +263,49 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   padding: 0 24px;
-  gap: 32px;
+  gap: 36px;
 }
 .welcome-hero {
   text-align: center;
 }
-.welcome-icon {
-  margin-bottom: 16px;
+.welcome-icon-wrap {
+  margin-bottom: 20px;
   display: inline-flex;
-  opacity: 0.7;
 }
 .welcome-title {
-  font-size: 24px;
-  font-weight: 600;
+  font-size: 26px;
+  font-weight: 700;
   color: var(--text-primary);
-  margin-bottom: 8px;
-  letter-spacing: -0.3px;
+  margin-bottom: 10px;
+  letter-spacing: -0.5px;
 }
 .welcome-desc {
   font-size: 14px;
   color: var(--text-secondary);
-  max-width: 360px;
-  line-height: 1.6;
+  max-width: 380px;
+  line-height: 1.7;
+  margin: 0 auto 20px;
+}
+.welcome-hints {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.hint-chip {
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  cursor: pointer;
+  transition: all var(--dur-quick) var(--ease-spring);
+}
+.hint-chip:hover {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 /* ── Message list ── */
@@ -278,7 +315,6 @@ onMounted(() => {
   padding: 20px 0;
 }
 
-/* Center on wide screens */
 @media (min-width: 800px) {
   .message-list {
     padding: 20px calc((100% - var(--chat-max-width)) / 2);

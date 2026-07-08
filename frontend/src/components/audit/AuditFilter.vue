@@ -13,7 +13,6 @@
         <option value="restricted">需确认 (restricted)</option>
         <option value="dangerous">高危 (dangerous)</option>
       </select>
-      <!-- v2: 异常筛选开关 -->
       <button
         class="anomaly-toggle"
         :class="{ active: anomalyOnly }"
@@ -58,30 +57,83 @@ onBeforeUnmount(() => { if (timer) clearTimeout(timer) })
 </script>
 
 <style scoped>
-.audit-filter { padding: 10px 20px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
-.filter-row { display: flex; align-items: center; gap: 10px; }
-.search-box { position: relative; flex: 1; max-width: 300px; }
-.search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-tertiary); pointer-events: none; }
-.search-input { width: 100%; padding: 6px 10px 6px 30px; background: var(--bg-root); border: 1px solid var(--border-default); border-radius: 7px; color: var(--text-primary); font-size: 13px; outline: none; transition: border-color 150ms; }
-.search-input:focus { border-color: var(--color-accent); }
-.search-input::placeholder { color: var(--text-placeholder); }
-.risk-select { padding: 6px 10px; background: var(--bg-root); border: 1px solid var(--border-default); border-radius: 7px; color: var(--text-primary); font-size: 13px; outline: none; cursor: pointer; min-width: 170px; transition: border-color 150ms; }
-.risk-select:focus { border-color: var(--color-accent); }
-.count-badge { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; margin-left: auto; }
+.audit-filter {
+  padding: 12px 20px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.search-box {
+  position: relative;
+  flex: 1;
+  max-width: 300px;
+}
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+.search-input {
+  width: 100%;
+  padding: 8px 12px 8px 34px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color var(--dur-quick) var(--ease-spring);
+}
+.search-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+.search-input::placeholder {
+  color: var(--text-placeholder);
+}
+.risk-select {
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  min-width: 170px;
+  transition: border-color var(--dur-quick) var(--ease-spring);
+}
+.risk-select:focus {
+  border-color: var(--color-accent);
+}
+.count-badge {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  margin-left: auto;
+}
 
-/* v2: 异常筛选开关 */
 .anomaly-toggle {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 6px 12px;
-  background: var(--bg-root);
+  padding: 8px 14px;
+  background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
-  transition: all 150ms;
+  transition: all var(--dur-quick) var(--ease-spring);
   white-space: nowrap;
 }
 .anomaly-toggle:hover {
