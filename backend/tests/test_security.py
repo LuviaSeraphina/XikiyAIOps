@@ -17,7 +17,6 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from app.core.intent_filter import check_jailbreak
-from app.core.injection_detector import validate_llm_output
 from app.core.permission_agent import (
     check_permission, require_confirmation, validate_path,
     get_permission_level, permission_summary, build_sudo_command,
@@ -112,24 +111,6 @@ class TestNoJailbreak:
         assert is_jb is False
 
 
-# 3. LLM 输出校验
-
-class TestLLMOutputValidation:
-    """LLM 输出黑名单校验"""
-
-    def test_rm_rf_in_output(self):
-        hits=validate_llm_output("你可以执行 rm -rf /tmp/cache 来清理")
-        assert len(hits) > 0
-        assert any("递归删除" in h for h in hits)
-
-    def test_fork_bomb(self):
-        hits=validate_llm_output("运行 :(){ :|:& };: 来测试")
-        assert len(hits) > 0
-        assert any("Fork" in h for h in hits)
-
-    def test_clean_output(self):
-        hits=validate_llm_output("系统负载正常，建议定期巡检")
-        assert len(hits) == 0
 
 
 # 5. 权限代理

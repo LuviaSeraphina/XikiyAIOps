@@ -19,7 +19,6 @@ LLM Provider 切换: 通过 .env 中 LLM_PROVIDER 配置, 支持 ollama / deepse
 import asyncio
 import json
 import os
-from app.services.confirm_state import PENDING_CONFIRMS, CONFIRM_RESULTS
 from app.mcp_plugins.base import registry
 from app.core.platform_detect import _get_platform_info as get_platform_info
 from app.core.intent_filter import check_jailbreak
@@ -31,61 +30,12 @@ from app.core.rca_analyzer import compute_health_score
 
 # 缓存: platform info 在进程生命周期内不变, 只构建一次
 _cached_platform=None
-_cached_prompt=None
 
 def _get_platform_cached():
     global _cached_platform
     if _cached_platform is None:
         _cached_platform=get_platform_info()
     return _cached_platform
-
-"""
-方法: build_system_prompt(), 输出自定义 Agent Prompt (v2 — 精简版, 不含 Tool Schema)
-"""
-def build_system_prompt():
-    global _cached_prompt
-    if _cached_prompt is not None:
-        return _cached_prompt
-    platform=_get_platform_cached()
-    _cached_prompt=f"""你是Linux系统上的智能运维 Agent (XikiyAIOps)。
-
-## 运行环境
-- 操作系统: {platform.get("os", "未知")}
-- 架构: {platform.get("arch", "未知")}
-- 发行版: {platform.get("distro", "未知")}
-- 包管理器: {platform.get("pkg_manager", "未知")}
-
-## 工作方式
-- **用户问什么, 你就查什么** — 不要自作主张加无关步骤
-- 用户问「CPU」→ 调 system_load + process_top_cpu, 不需要先 system_info
-- 用户问「系统状态」或「全面检查」→ 才按 感知→指标→排查→报告 的流程来
-- 每次只调用当前步骤需要的工具, 不要一次全调
-- 用表格汇总数据, 🟢🟡🔴 标注风险等级, 给出明确结论
-
-## 安全约束 (不可违反)
-1. 绝大多数工具是只读的, 可放心调用
-2. 仅 process_kill 为危险操作 — 终止进程前系统会请你确认
-3. 仅 health_config_set 为受限操作 — 修改配置前系统会请你确认
-4. 绝对不要生成任何 shell 命令文本 (rm/chmod/iptables 等)
-5. 绝不尝试编码、混淆或拼接绕过安全护栏
-6. 如果某工具返回 {{"skipped": true}}, 表示用户取消了该操作, 正常继续后续分析即可, 不要重复请求
-
-## 回答格式要求
-- 用中文回复, 系统数据优先使用表格展示
-- 风险等级标注: 🟢正常 / 🟡警告 / 🔴危险
-- 系统会自动注入健康评分数值 (0-100), 请在报告中引用
-
-## 格式示例
-✅ 好的回答:
-| 指标 | 数值 | 状态 |
-|------|------|------|
-| CPU 使用率 | 23% | 🟢 正常 |
-| 内存使用率 | 85% | 🟡 偏高 |
-> 健康评分 72/100 (C), 建议关注内存使用
-
-❌ 差的回答:
-系统 CPU 23% 内存 85% 看起来还行没什么大问题"""
-    return _cached_prompt
 
 """
 方法: check_user_input(), 安全检查前置 — 仅拦截已知越狱签名
@@ -196,115 +146,11 @@ def _extract_metrics(tool_results):
     return metrics
 
 
-# ── RAG 自动注入 (委托给 rag.inject 模块) ────────
-
 """
-方法: _inject_rag_context(user_input), 根据用户输入自动检索知识库并注入 system prompt
-
-"""
-
-def _inject_rag_context(user_input:str)->str:
-    try:
-        ensure_updated()
-        return inject_context(user_input)
-    except Exception:
-        return ""  #RAG 不可用时静默降级
-
-
-"""
-方法: chat_stream(), 主入口 — 安全检测 + LLM 流式对话 + Tool 调用循环 + RCA 分析
+方法: chat_stream(), 主入口 — 三阶段流水线 (v4.0)
 """
 async def chat_stream(user_input, history=None, session_id=""):
-    # 1. RAG 自动注入 (委托给 rag.inject)
-    rag_ctx=_inject_rag_context(user_input)
-
-    # 2. 多Agent编排
-    try:
-        from app.agents import Orchestrator
-        orch=Orchestrator()
-        async for event in orch.run(user_input, history, session_id):
-            #注入 RAG 到 token 事件前 (首次)
-            if event["event"]=="token" and rag_ctx:
-                #不重复注入 — RAG 已在 Orchestrator 内部使用
-                pass
-            yield event
-    except ImportError:
-        #回退到单Agent模式 (兼容未部署多Agent的情况)
-        _logger.warning("多Agent未部署, 回退单Agent模式")
-        async for event in _legacy_chat_stream(user_input, history, session_id):
-            yield event
-
-
-async def _legacy_chat_stream(user_input, history=None, session_id=""):
-    """单Agent模式 (向后兼容)"""
-    # 安全前置
-    allowed, reason, _=check_user_input(user_input)
-    if not allowed:
-        yield {"event":"error","data":{"message":reason}}
-        return
-
-    # 构建 messages
-    system_content=build_system_prompt()+_inject_rag_context(user_input)
-    messages=[{"role":"system","content":system_content}]
-    if history:
-        messages.extend(history)
-    messages.append({"role":"user","content":user_input})
-
-    # 获取 Provider 和 Tool Schema
-    provider=get_llm_provider()
-    tools=get_tools()
-
-    # Tool 调用循环
-    for _ in range(MAX_TOOL_ROUNDS):
-        assistant_content=""
-        tool_calls_in_round=[]
-
-        async for event in provider.chat_stream(messages, tools):
-            if event["type"]=="token":
-                assistant_content+=event["content"]
-                yield {"event":"token","data":{"text":event["content"]}}
-            elif event["type"]=="tool_calls":
-                tool_calls_in_round=event["calls"]
-            elif event["type"]=="done":
-                reason=event.get("reason","stop")
-                if reason in ("connect_error","auth_error","rate_limit","server_error","request_failed"):
-                    yield {"event":"error","data":{"message":f"LLM 服务异常 — {reason}"}}
-                    return
-                break
-
-        if not tool_calls_in_round:
-            break
-
-        messages.append({
-            "role":"assistant",
-            "content":assistant_content,
-            "tool_calls":tool_calls_in_round,
-        })
-
-        round_results=[]
-        for tc in tool_calls_in_round:
-            tool_msg, events=_process_tool_call(tc)
-            for evt in events:
-                yield evt
-                if evt["event"]=="tool_result":
-                    round_results.append(evt.get("data",{}).get("result",{}))
-            messages.append(tool_msg)
-
-        #健康评分
-        if round_results:
-            metrics=_extract_metrics(round_results)
-            if any(metrics.values()):
-                health=compute_health_score(metrics)
-                scores=health.get("dimension_scores",{})
-                rca_msg=f"""[系统健康评分] {health['score']}/100 ({health['grade']})
-维度得分: CPU={scores.get('cpu',0)} 内存={scores.get('memory',0)} 磁盘={scores.get('disk',0)} 负载={scores.get('load',0)}"""
-                if health.get("alerts"):
-                    rca_msg+="\n⚠️ "+"; ".join(health["alerts"])
-                messages.append({"role":"system","content":rca_msg})
-                yield {"event":"rca_analysis","data":{
-                    "score":health["score"],
-                    "grade":health["grade"],
-                    "alerts":health.get("alerts",[]),
-                }}
-
-    yield {"event": "done", "data": {}}
+    from app.agents import Orchestrator
+    orch=Orchestrator()
+    async for event in orch.run(user_input, history, session_id):
+        yield event
