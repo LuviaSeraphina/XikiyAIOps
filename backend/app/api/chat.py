@@ -57,8 +57,12 @@ async def chat_send(request: Request):
             collected_events.append(event)
             event_type=event.get("event","")
 
-            #收集工具调用信息
-            if event_type=="tool_call":
+            #收集工具调用信息 (v4.0: Orchestrator 发 step_start, 字段为 tool)
+            if event_type=="step_start":
+                tool_name=event.get("data",{}).get("tool","")
+                if tool_name:
+                    collector.append(tool_name)
+            elif event_type=="tool_call":
                 collector.append(event.get("data",{}).get("tool_name",""))
 
             yield f"event: {event['event']}\ndata: {json.dumps(event['data'],ensure_ascii=False)}\n\n"
@@ -193,28 +197,32 @@ async def _persist_chat(session_id,user_input,events,tools_called,stage_input_ev
             if etype=="token":
                 assistant_content+=edata.get("text","")
 
-            elif etype=="tool_call":
+            elif etype in ("tool_call","step_start"):
+                #v4.0: Orchestrator 发 step_start (字段 tool), 旧路径 tool_call (字段 tool_name)
+                tname=edata.get("tool","") or edata.get("tool_name","")
                 tool_calls_collected.append({
-                    "id":edata.get("tool_name",""),
-                    "tool_name":edata.get("tool_name",""),
+                    "id":tname,
+                    "tool_name":tname,
                     "arguments":edata.get("arguments",{}),
                     "status":"running",
                     "risk_level":edata.get("risk_level",""),
                 })
 
-            elif etype=="tool_result":
-                #更新最近匹配的 tool_call 状态
+            elif etype in ("tool_result","step_result"):
+                #v4.0: Orchestrator 发 step_result (字段 tool/summary), 旧路径 tool_result (字段 tool_name/result)
+                tname=edata.get("tool","") or edata.get("tool_name","")
                 result_data=edata.get("result",{})
+                #更新最近匹配的 tool_call 状态
                 for tc in tool_calls_collected:
-                    if tc["tool_name"]==edata.get("tool_name",""):
+                    if tc["tool_name"]==tname:
                         tc["status"]=edata.get("status","done")
-                        tc["result"]=result_data
+                        tc["result"]=result_data or edata.get("summary",{})
                         break
-                #采集真实执行数据 (stdout/stderr/duration_ms 来自 result_data)
-                tname=edata.get("tool_name") or edata.get("tool","")
-                summary=result_data.get("summary",{})
-                data=result_data.get("data",{})
-                is_error=edata.get("status")=="error" or result_data.get("risk_level") in ("error","blocked")
+                #采集真实执行数据
+                summary=edata.get("summary",{}) or result_data.get("summary",{})
+                data=result_data.get("data",{}) if result_data else {}
+                raw_status=edata.get("status","done")
+                is_error=raw_status in ("error","FAILED","BLOCKED") or bool(edata.get("error"))
                 #注: stdout/stderr/duration_ms 由 run_command() 返回, 但当前插件层
                 #通过 run_command_text() 仅提取 stdout 字符串, 未透传结构化 dict。
                 #后续优化: 插件 handler 改用 run_command() 并在 make_response().data 中
@@ -224,7 +232,7 @@ async def _persist_chat(session_id,user_input,events,tools_called,stage_input_ev
                 raw_duration=data.get("duration_ms",0) if isinstance(data.get("duration_ms"),(int,float)) else 0
                 tool_executions.append({
                     "tool_name":tname,
-                    "status":edata.get("status","done"),
+                    "status":raw_status,
                     "is_anomaly":is_error,
                     "exit_code":1 if is_error else 0,
                     "output_summary":summary.get("error","") if is_error else fmt_summary(summary),

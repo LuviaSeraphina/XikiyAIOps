@@ -26,6 +26,7 @@ MCP 插件注册中心 — 统一管理所有 Tool 的注册、发现与调用
 - network_security_ops — 防火墙/网络操作 (3 个)
 - user_pkg_plugin — 用户/包管理 (6 个)
 """
+import inspect
 from enum import Enum
 import importlib
 from app.core.permission_agent import check_permission
@@ -60,8 +61,11 @@ class MCPTool:
         }
 
     def execute(self, **kwargs):
-    # 执行 Tool, 返回统一结构 (handler 内部已有异常保护)
-        return self.handler(**kwargs)
+    # 执行 Tool — 过滤多余参数，防止 LLM 误传参数导致 TypeError
+        import inspect
+        sig=inspect.signature(self.handler)
+        filtered={k: v for k, v in kwargs.items() if k in sig.parameters}
+        return self.handler(**filtered)
 
 
 class MCPPluginRegistry:
@@ -116,7 +120,7 @@ class MCPPluginRegistry:
 def _auto_register_all(reg):
     reg.register(MCPTool(
         name="process_inspect",
-        description="获取系统进程信息, 支持按状态过滤、按 CPU/内存排序",
+        description="获取系统进程列表 (按 CPU/内存排序或按状态过滤), 返回 Top N 进程摘要。如需查看单个进程的详细信息 (PID/线程/FD 等), 请使用 process_detail 工具",
         handler=_safe_import("app.mcp_plugins.process_plugin", "process_inspect_handler"),
         risk_level=RiskLevel.READ_ONLY,
     ))

@@ -31,7 +31,7 @@ from app.mcp_plugins._common import (
 
 process_inspect_schema={
     "name": "process_inspect",
-    "description": "获取系统进程信息",
+    "description": "获取系统进程列表 (按 CPU/内存排序或按状态过滤), 返回 Top N 进程摘要。如需查看单个进程的详细信息, 请使用 process_detail",
     "inputSchema": {
         "type": "object",
         "properties": {
