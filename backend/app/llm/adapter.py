@@ -10,7 +10,7 @@ LLM 适配层 — 主编排逻辑
     _process_tool_call()    — 单次工具调用的 SSE 事件构建 + 执行
     chat_stream()           — 主入口 async generator, 编排完整对话循环
 
-LLM Provider 切换: 通过 .env 中 LLM_PROVIDER 配置, 支持 ollama / deepseek / qwen / openai
+LLM Provider 切换: 通过前端「模型配置」页面管理，持久化到 llm_config.json
     工厂函数: app.llm.providers.get_llm_provider()
 
 依赖: registry (MCP), intent_filter (安全签名), providers (LLM)

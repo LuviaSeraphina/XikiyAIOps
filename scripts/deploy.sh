@@ -343,37 +343,34 @@ fi
 echo -e "\n${BOLD}▶ Step 5/6: 配置${NC}"
 cd "$BACKEND_DIR"
 
-#.env (支持环境变量预设: SRE_LLM_PROVIDER / SRE_LLM_MODEL / SRE_LLM_API_KEY)
+#.env (LLM 模型配置已移至前端「模型配置」页面, 部署时无需配置)
 if [ ! -f .env ]; then
+  #如果通过环境变量预设了 LLM 配置, 写入 .env (向后兼容)
   if [ -n "${SRE_LLM_PROVIDER:-}" ]; then
-    #非交互模式: 从环境变量读取
     _PROVIDER="${SRE_LLM_PROVIDER}"; _URL="${SRE_LLM_BASE_URL:-https://api.deepseek.com}"
-    _MODEL="${SRE_LLM_MODEL:-deepseek-v4-flash}"; _KEY="${SRE_LLM_API_KEY:-}"
+    _MODEL="${SRE_LLM_MODEL:-deepseek-chat}"; _KEY="${SRE_LLM_API_KEY:-}"
     log_info "LLM 配置来自环境变量: $_PROVIDER / $_MODEL"
-  else
-    #交互模式: 默认 DeepSeek 云端
-    echo ""
-    echo "  配置 LLM (默认 DeepSeek 云端):"
-    _PROVIDER="deepseek"; _URL="https://api.deepseek.com"
-    echo -n "  模型 (默认 deepseek-v4-flash): "; read -r _M; _MODEL="${_M:-deepseek-v4-flash}"
-    echo -n "  API Key: "; read -rs _KEY; echo ""
   fi
 
   cat > .env << EOF
-LLM_PROVIDER=$_PROVIDER
-LLM_BASE_URL=$_URL
-LLM_MODEL=$_MODEL
-LLM_API_KEY=$_KEY
 MAX_RISK_LEVEL=restricted
 REQUIRE_CONFIRMATION=true
 AUDIT_ENABLED=true
 DATABASE_URL=sqlite+aiosqlite:///$BACKEND_DIR/data/xikiy_aiops.db
 EOF
+  #如果环境变量预设了 LLM, 追加到 .env
+  if [ -n "${SRE_LLM_PROVIDER:-}" ]; then
+    cat >> .env << EOF
+LLM_PROVIDER=$_PROVIDER
+LLM_BASE_URL=$_URL
+LLM_MODEL=$_MODEL
+LLM_API_KEY=$_KEY
+EOF
+  fi
   log_ok ".env 已生成"
+  log_info "请在前端「模型配置」页面设置 LLM 模型和 API Key"
 else
   log_info ".env 已存在, 跳过配置"
-  _PROVIDER=$(grep -oP 'LLM_PROVIDER=\K.*' .env 2>/dev/null || echo "?")
-  _MODEL=$(grep -oP 'LLM_MODEL=\K.*' .env 2>/dev/null || echo "?")
 fi
 
 #数据库 + RAG 知识库目录
@@ -389,7 +386,7 @@ log_ok "数据库就绪"
 #验证
 echo ""
 _TOOLS=$("$VENV_PYTHON" -c "from app.mcp_plugins.base import registry; print(registry.count)" 2>/dev/null || echo "0")
-echo -e "  MCP Tool: ${GREEN}$_TOOLS${NC} 个  |  LLM: ${GREEN}$_PROVIDER / $_MODEL${NC}"
+echo -e "  MCP Tool: ${GREEN}$_TOOLS${NC} 个  |  LLM: ${YELLOW}请在前端配置${NC}"
 
 # ============================================================
 # Step 6: 最小权限代理

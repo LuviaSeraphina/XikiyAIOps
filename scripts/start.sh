@@ -81,8 +81,12 @@ ARCH="$(uname -m)"
 [[ "$ARCH" == "loongarch64" ]] && IS_LOONGARCH=true
 echo "        架构: $ARCH ($([ "$IS_LOONGARCH" = true ] && echo 'LoongArch' || echo 'x86_64/ARM'))"
 
-# 读取 .env 获取 LLM 配置
-if [ -f "$BACKEND_DIR/.env" ]; then
+# 读取 LLM 配置 (JSON 文件优先, .env 兜底)
+if [ -f "$BACKEND_DIR/llm_config.json" ]; then
+  LLM_PROVIDER=$(python3 -c "import json; print(json.load(open('$BACKEND_DIR/llm_config.json'))['provider'])" 2>/dev/null || echo "unknown")
+  LLM_MODEL=$(python3 -c "import json; print(json.load(open('$BACKEND_DIR/llm_config.json'))['model'])" 2>/dev/null || echo "unknown")
+  echo "        LLM : $LLM_PROVIDER / $LLM_MODEL"
+elif [ -f "$BACKEND_DIR/.env" ]; then
   LLM_PROVIDER=$(grep '^LLM_PROVIDER=' "$BACKEND_DIR/.env" | cut -d= -f2 || echo "unknown")
   LLM_MODEL=$(grep '^LLM_MODEL=' "$BACKEND_DIR/.env" | cut -d= -f2 || echo "unknown")
   echo "        LLM : $LLM_PROVIDER / $LLM_MODEL"

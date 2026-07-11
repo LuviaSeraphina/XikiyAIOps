@@ -10,7 +10,6 @@ v4.0 职责分离架构:
 """
 import json
 import logging
-import os
 import re
 from typing import Dict, Tuple
 from app.core.intent_filter import check_jailbreak
@@ -43,9 +42,13 @@ class SecurityAgent:
     async def _llm_review_input(self, user_input:str)->Tuple[bool,str,str]:
         """LLM 语义级安全审查 — 核心判断层"""
         import httpx
-        api_key=os.getenv("LLM_API_KEY","")
-        base_url=os.getenv("LLM_BASE_URL","https://api.deepseek.com")
-        model=os.getenv("LLM_MODEL","deepseek-v4-flash")
+        from app.llm.config import get_llm_config
+        config=get_llm_config()
+        active=config.get("active_preset","deepseek")
+        preset=config.get("presets",{}).get(active,{})
+        api_key=preset.get("api_key","")
+        base_url=preset.get("base_url","https://api.deepseek.com")
+        model=preset.get("model","deepseek-v4-flash")
         if not api_key:
             return True, "OK(无API Key,跳过LLM审查)", "safe"
 

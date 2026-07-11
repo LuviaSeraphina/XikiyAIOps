@@ -35,16 +35,23 @@ async def health():
     llm_status="unknown"
     llm_detail=""
     try:
-        import os,httpx
-        url=os.getenv("LLM_BASE_URL","https://api.deepseek.com")
+        import httpx
+        from app.llm.config import get_llm_config
+        config=get_llm_config()
+        active_preset=config.get("active_preset","deepseek")
+        preset=config.get("presets",{}).get(active_preset,{})
+        url=preset.get("base_url","https://api.deepseek.com")
+        provider=preset.get("provider","deepseek")
 
         #通用连通检查: GET /models (兼容 DeepSeek / OpenAI / Ollama)
         headers={}
-        api_key=os.getenv("LLM_API_KEY","")
+        api_key=preset.get("api_key","")
         if api_key:
             headers["Authorization"]=f"Bearer {api_key}"
+        #Ollama 用 /api/tags
+        test_url=f"{url.rstrip('/')}/api/tags" if provider=="ollama" else f"{url}/models"
         async with httpx.AsyncClient(timeout=5) as cli:
-            resp=await cli.get(f"{url}/models",headers=headers)
+            resp=await cli.get(test_url,headers=headers)
             #200=通, 401=Key问题, 403=权限问题(但API可达)
             if resp.status_code in (200,401,403):
                 llm_status="ok"
@@ -96,7 +103,7 @@ async def metrics():
     return Response(content="\n".join(lines), media_type="text/plain")
 
 
-#路由注册 (必须在静态文件挂载之前, 否则 /api 路由被静态文件拦截)
+#路由注册
 from app.api import chat
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 

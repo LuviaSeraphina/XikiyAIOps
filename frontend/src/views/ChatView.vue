@@ -54,13 +54,9 @@
               <path d="M22 40l10 7 10-7" stroke="var(--color-accent)" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.4" />
             </svg>
           </div>
-          <h1 class="welcome-title">麒麟安全运维 Agent</h1>
-          <p class="welcome-desc">通过自然语言对话，感知系统状态、排查故障、执行运维操作。所有操作受安全护栏保护。</p>
-          <div class="welcome-hints">
-            <span class="hint-chip">查看系统状态</span>
-            <span class="hint-chip">检查安全告警</span>
-            <span class="hint-chip">分析 CPU 高负载</span>
-          </div>
+          <h1 class="welcome-title">XikiyAIOps Agent</h1>
+          <p class="welcome-desc">通过自然语言对话，感知系统状态、排查故障、执行运维操作</p>
+
         </div>
         <ChatInput :disabled="store.streaming" @send="store.sendMessage" />
       </div>
@@ -286,27 +282,7 @@ onMounted(() => {
   line-height: 1.7;
   margin: 0 auto 20px;
 }
-.welcome-hints {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-.hint-chip {
-  font-size: 12px;
-  padding: 6px 14px;
-  border-radius: var(--radius-full);
-  background: var(--bg-hover);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-default);
-  cursor: pointer;
-  transition: all var(--dur-quick) var(--ease-spring);
-}
-.hint-chip:hover {
-  background: var(--color-accent-soft);
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
+
 
 /* ── Message list ── */
 .message-list {
