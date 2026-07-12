@@ -525,10 +525,13 @@ def security_sysctl_audit():
 
         violations=[]
         passed=[]
+        skipped=[]
         for param, (expected, description) in checks.items():
             result=_run_command(["sysctl", "-n", param], timeout=3)
             if not _cmd_ok(result):
-                return _error_response("security_sysctl_audit",f"sysctl -n {param} 执行失败")
+                #单个参数读取失败不中断整个审计, 记录后继续
+                skipped.append({"param":param,"reason":result.get("stderr","权限不足或参数不存在")})
+                continue
             actual=result["stdout"].strip() if result["stdout"] else ""
             if actual!=expected:
                 violations.append({
@@ -544,10 +547,13 @@ def security_sysctl_audit():
             data={
                 "violations":violations,
                 "passed_count":len(passed),
+                "skipped":skipped,
             },
             summary={
                 "total_checked":len(checks),
                 "violations":len(violations),
+                "passed":len(passed),
+                "skipped":len(skipped),
                 "alert":len(violations)>0,
                 "alert_reason": _alert_if(len(violations)>0,
                 "{} 个内核安全参数不符合基线",len(violations)),
@@ -746,14 +752,11 @@ def security_selinux_status():
                 except Exception:
                     pass
 
-            #getenforce 补充
+            #getenforce 补充 — 可能未安装, 失败时静默跳过
             try:
                 out=_run_command(["getenforce"], timeout=5)
-                if not _cmd_ok(out):
-                    return _error_response("security_selinux_status", "getenforce 执行失败")
-                output=out["stdout"]
-                if output and output.strip():
-                    ms=output.strip().lower()
+                if _cmd_ok(out) and out.get("stdout"):
+                    ms=out["stdout"].strip().lower()
                     if ms in ("enforcing", "permissive", "disabled"):
                         se_enabled=True
                         se_mode=ms
@@ -773,13 +776,12 @@ def security_selinux_status():
             except Exception:
                 pass
 
-        #aa-status 命令
+        #aa-status 命令 — 可能未安装, 失败时静默跳过
         try:
             aa_out=_run_command(["aa-status", "--enabled"], timeout=5)
-            if not _cmd_ok(aa_out):
-                return _error_response("security_selinux_status", "aa-status --enabled 执行失败")
-            aa_active=True
-            aa_enabled=True
+            if _cmd_ok(aa_out):
+                aa_active=True
+                aa_enabled=True
         except Exception:
             pass
 

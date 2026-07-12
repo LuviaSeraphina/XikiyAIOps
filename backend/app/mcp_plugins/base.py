@@ -41,16 +41,17 @@ class RiskLevel(str, Enum):
 
 class MCPTool:
     """MCP 工具定义"""
-    def __init__(self, name, description, handler, risk_level=RiskLevel.READ_ONLY, parameters=None):
+    def __init__(self, name, description, handler, risk_level=RiskLevel.READ_ONLY, parameters=None, required=None):
         self.name=name
         self.description=description
         self.handler=handler
         self.risk_level=RiskLevel(risk_level)
         self.parameters=parameters or {}
+        self.required=required or []
 
     def to_schema(self):
     # 转为 MCP 协议的 Tool Schema
-        return {
+        schema={
             "name": self.name,
             "description": self.description,
             "inputSchema": {
@@ -59,6 +60,9 @@ class MCPTool:
             },
             "risk_level": self.risk_level.value,
         }
+        if self.required:
+            schema["inputSchema"]["required"]=self.required
+        return schema
 
     def execute(self, **kwargs):
     # 执行 Tool — 过滤多余参数，防止 LLM 误传参数导致 TypeError
@@ -101,12 +105,12 @@ class MCPPluginRegistry:
     # 统一调用入口, 自动校验 risk_level + 权限预检         _raw=True: 跳过脱敏 (供 Agent 内部感知用, 前端展示仍需单独脱
         tool=self._tools.get(name)
         if not tool:
-            return {"tool": name, "risk_level": "error", "data": {}, "summary": {"error": "Tool not found: {}".format(name)}}
+            return {"tool": name, "status": "error", "risk_level": "error", "data": {}, "summary": {"error": "Tool not found: {}".format(name)}}
 
         #安全护栏: 权限预检
         allowed, reason,_=check_permission(tool.risk_level.value)
         if not allowed:
-            return {"tool": name, "risk_level": "blocked", "data": {}, "summary": {"error": reason}}
+            return {"tool": name, "status": "blocked", "risk_level": "blocked", "data": {}, "summary": {"error": reason}}
 
         result = tool.execute(**kwargs)
         return result if _raw else sanitize_response(name, result)
@@ -549,6 +553,7 @@ def _auto_register_all(reg):
         parameters={
             "path": {"type": "string", "description": "文件绝对路径"},
         },
+        required=["path"],
     ))
     reg.register(MCPTool(
         name="file_read",
@@ -559,6 +564,7 @@ def _auto_register_all(reg):
             "path": {"type": "string", "description": "文件绝对路径"},
             "max_lines": {"type": "integer", "default": 200, "minimum": 1, "maximum": 1000, "description": "最大读取行数"},
         },
+        required=["path"],
     ))
     reg.register(MCPTool(
         name="file_truncate",
@@ -568,10 +574,11 @@ def _auto_register_all(reg):
         parameters={
             "path": {"type": "string", "description": "要截断的文件绝对路径"},
         },
+        required=["path"],
     ))
     reg.register(MCPTool(
         name="disk_cleanup",
-        description="一键清理系统垃圾 — journalctl vacuum(保留3天) + apt/dnf缓存 + /tmp旧文件(>7天) + core dump",
+        description="一键清理系统垃圾 — journalctl vacuum(保留3天) + apt/dnf缓存 + /tmp旧文件(>7天) + core dump。⚠️ 此工具无需 path 参数，自动清理所有已知路径，直接调用即可",
         handler=_safe_import("app.mcp_plugins.ops_plugin", "disk_cleanup"),
         risk_level=RiskLevel.RESTRICTED,
         parameters={
@@ -589,6 +596,7 @@ def _auto_register_all(reg):
         parameters={
             "path": {"type": "string", "description": "要轮转的日志文件绝对路径"},
         },
+        required=["path"],
     ))
 
     #---- 服务管理 (v0.5) ----

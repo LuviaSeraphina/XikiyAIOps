@@ -23,6 +23,7 @@ from datetime import datetime
 def make_response(tool, data, summary, risk_level="read_only"):
     return {
         "tool": tool,
+        "status": "ok",
         "timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "risk_level": risk_level,
         "data": data,
@@ -34,6 +35,7 @@ def make_response(tool, data, summary, risk_level="read_only"):
 def error_response(tool, error):
     return {
         "tool": tool,
+        "status": "error",
         "timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "risk_level": "error",
         "data": {},
@@ -262,7 +264,7 @@ _SUDO_COMMANDS={
     "truncate","logrotate","systemctl","sysctl","kill",
     "renice","ionice","iptables","nft","useradd","usermod",
     "chpasswd","apt","dnf","yum","tee","chattr",
-    "journalctl","find","rmmod",
+    "find","rmmod",
 }
 
 # 高危参数模式 — 分三类匹配, 避免子串误伤 (如 rm 匹配 format)
@@ -301,6 +303,19 @@ def _is_safe_command(cmd):
 
 _logger=logging.getLogger("xikiy_aiops.mcp")
 
+#命令路径补全 — 某些命令不在非登录 shell 的 PATH 中 (如 /usr/sbin/sysctl)
+def _resolve_cmd(name):
+    """返回可执行的命令路径，优先用 PATH 中的，否则尝试常见 sbin 路径"""
+    import shutil
+    found=shutil.which(name)
+    if found:
+        return found
+    for d in ["/usr/sbin","/sbin","/usr/local/sbin"]:
+        p=f"{d}/{name}"
+        if os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    return name  #返回原始名称, 让 subprocess 报 FileNotFoundError
+
 """
 方法: run_command(), 安全执行固定参数命令
 
@@ -319,16 +334,20 @@ def run_command(cmd, timeout=10):
         _logger.warning(f"命令拦截: {' '.join(cmd[:3])} — {reason}")
         return {"stdout":"","stderr":reason,"exit_code":-1,"duration_ms":0,"blocked":True}
 
+    #命令路径补全 — sysctl/aa-status 等可能在 /usr/sbin 下
+    cmd_resolved=list(cmd)
+    cmd_resolved[0]=_resolve_cmd(cmd[0])
+
     #最小权限代理: 非 root 用户对需要特权的命令自动加 sudo -n
     _euid=os.geteuid()
     if _euid!=0 and cmd and cmd[0] in _SUDO_COMMANDS:
         if os.path.exists("/usr/bin/sudo"):
-            cmd=["sudo","-n"]+list(cmd)
+            cmd_resolved=["sudo","-n"]+list(cmd_resolved)
 
     start=time.monotonic()
     try:
         result=subprocess.run(
-            cmd,
+            cmd_resolved,
             capture_output=True,
             text=True,
             timeout=timeout
@@ -339,9 +358,9 @@ def run_command(cmd, timeout=10):
         exit_code=result.returncode
 
         if exit_code!=0 and not stdout:
-            _logger.warning(f"命令执行失败: {' '.join(cmd)} (rc={exit_code}){f' stderr={stderr}' if stderr else ''}")
+            _logger.warning(f"命令执行失败: {' '.join(cmd_resolved)} (rc={exit_code}){f' stderr={stderr}' if stderr else ''}")
         elif exit_code!=0 and stderr:
-            _logger.warning(f"命令返回非 0: {' '.join(cmd)} (rc={exit_code}){f' stderr={stderr}' if stderr else ''}")
+            _logger.warning(f"命令返回非 0: {' '.join(cmd_resolved)} (rc={exit_code}){f' stderr={stderr}' if stderr else ''}")
 
         return {
             "stdout":stdout,
@@ -352,11 +371,11 @@ def run_command(cmd, timeout=10):
         }
     except subprocess.TimeoutExpired:
         elapsed_ms=int((time.monotonic() - start) * 1000)
-        _logger.warning(f"命令超时: {' '.join(cmd)} (>{timeout}s)")
+        _logger.warning(f"命令超时: {' '.join(cmd_resolved)} (>{timeout}s)")
         return {"stdout":"","stderr":f"命令超时 (>{timeout}s)","exit_code":-1,"duration_ms":elapsed_ms,"blocked":False}
     except (FileNotFoundError, OSError) as e:
         elapsed_ms=int((time.monotonic() - start) * 1000)
-        _logger.warning(f"命令执行异常: {' '.join(cmd)} — {e}")
+        _logger.warning(f"命令执行异常: {' '.join(cmd_resolved)} — {e}")
         return {"stdout":"","stderr":str(e),"exit_code":-1,"duration_ms":elapsed_ms,"blocked":False}
 
 """

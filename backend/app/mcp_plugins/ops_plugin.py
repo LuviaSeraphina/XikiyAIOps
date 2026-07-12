@@ -91,7 +91,7 @@ def _get_open_by(filepath):
 def file_identify(path=""):
     try:
         if not path:
-            return _error_response("file_identify", ValueError("参数 path 不能为空"))
+            return _error_response("file_identify", ValueError("参数 path 不能为空, 请指定要扫描的目录, 如 /var/log 或 /tmp"))
 
         #安全校验: 路径规范化
         real_path=os.path.realpath(path)
@@ -227,7 +227,7 @@ def file_read(path="", max_lines=200):
 def file_truncate(path=""):
     try:
         if not path:
-            return _error_response("file_truncate", ValueError("参数 path 不能为空"))
+            return _error_response("file_truncate", ValueError("参数 path 不能为空, 请先通过 disk_large_files 获取大文件路径"))
 
         real_path=os.path.realpath(path)
         if not os.path.isfile(real_path):
@@ -378,7 +378,7 @@ def disk_cleanup(cleanup_journal=True, cleanup_pkg_cache=True, cleanup_tmp=True,
 def logrotate_force(path=""):
     try:
         if not path:
-            return _error_response("logrotate_force", ValueError("参数 path 不能为空"))
+            return _error_response("logrotate_force", ValueError("参数 path 不能为空, 请指定日志文件路径, 如 /var/log/syslog"))
 
         real_path=os.path.realpath(path)
 

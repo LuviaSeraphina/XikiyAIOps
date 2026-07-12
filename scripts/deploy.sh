@@ -20,6 +20,7 @@ BACKEND_DIR="$PROJECT_DIR/backend"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
 OFFLINE_DIR="$PROJECT_DIR/offline-packages"
 ACTUAL_USER="${SUDO_USER:-$(whoami)}"
+_PROD_DIR="/opt/xikiy-aiops"
 
 echo -e "${BOLD}${GREEN}"
 echo "  ╔══════════════════════════════════════╗"
@@ -293,10 +294,13 @@ if [ "$_HAS_WHEELS" = true ]; then
   done
   log_ok "已安装 $_DONE / $_TOTAL 个包"
 
-  #LoongArch: gfortran 刚装, 强制重装 numpy 让其重新链接 Fortran 符号
+  #LoongArch: 用本地 wheel 重装 numpy 让其重新链接 Fortran 符号
   if [ "$IS_LOONGARCH" = true ]; then
     log_info "LoongArch: 重新链接 numpy Fortran 符号..."
-    "$VENV_PIP" install --force-reinstall --no-deps --no-build-isolation numpy 2>&1 | tail -1 || true
+    _NUMPY_WHL3=$(find "$VENDOR_DIR" -name 'numpy*.whl' 2>/dev/null | head -1)
+    if [ -n "$_NUMPY_WHL3" ]; then
+      "$VENV_PIP" install --force-reinstall --no-deps "$_NUMPY_WHL3" 2>&1 | tail -1 || true
+    fi
   fi
 
   #修复 pydantic 版本检查 + METADATA
@@ -385,68 +389,144 @@ log_ok "数据库就绪"
 
 #验证
 echo ""
-_TOOLS=$("$VENV_PYTHON" -c "from app.mcp_plugins.base import registry; print(registry.count)" 2>/dev/null || echo "0")
+_TOOLS=$(sudo -u xikiy "$_PROD_DIR/backend/.venv/bin/python" -c "from app.mcp_plugins.base import registry; print(registry.count)" 2>/dev/null || echo "0")
 echo -e "  MCP Tool: ${GREEN}$_TOOLS${NC} 个  |  LLM: ${YELLOW}请在前端配置${NC}"
 
 # ============================================================
-# Step 6: 最小权限代理
+# Step 6: 最小权限代理 + 安装到 /opt/xikiy-aiops
 # ============================================================
 echo -e "\n${BOLD}▶ Step 6/6: 最小权限代理${NC}"
 
-#创建 xikiy 系统用户 (无登录权限)
+_DEPLOY_USER="$(whoami)"
+
+#── 6a. 创建 xikiy 系统用户和组 ──
+if ! getent group xikiy &>/dev/null; then
+  sudo groupadd -r xikiy
+  log_ok "组 xikiy 已创建"
+fi
 if ! id xikiy &>/dev/null; then
-  sudo useradd -r -d /opt/xikiy-aiops -s /sbin/nologin xikiy
+  sudo useradd -r -g xikiy -d "$_PROD_DIR" -s /sbin/nologin xikiy
   log_ok "用户 xikiy 已创建"
 else
   log_info "用户 xikiy 已存在"
 fi
 
-#加入提权组 — restricted 工具需要 sudo 组成员权限
-# Debian/Ubuntu → sudo 组, RHEL/麒麟 → wheel 组
-_SUDO_GROUP=""
-if getent group sudo >/dev/null 2>&1; then
-  _SUDO_GROUP="sudo"
-elif getent group wheel >/dev/null 2>&1; then
-  _SUDO_GROUP="wheel"
+#── 6b. 安装项目到 /opt/xikiy-aiops ──
+if [ "$PROJECT_DIR" != "$_PROD_DIR" ]; then
+  log_info "安装到 $_PROD_DIR ..."
+  sudo mkdir -p "$_PROD_DIR"
+  sudo cp -r "$PROJECT_DIR"/* "$_PROD_DIR/" 2>/dev/null || true
+  log_ok "项目已复制到 $_PROD_DIR"
 fi
+sudo chown -R xikiy:xikiy "$_PROD_DIR"
 
-if [ -n "$_SUDO_GROUP" ] && ! groups xikiy 2>/dev/null | grep -qw "$_SUDO_GROUP"; then
-  sudo usermod -aG "$_SUDO_GROUP" xikiy
-  log_ok "xikiy 已加入 $_SUDO_GROUP 组"
-elif [ -n "$_SUDO_GROUP" ]; then
-  log_info "xikiy 已在 $_SUDO_GROUP 组"
+#── 6c. 以 xikiy 身份创建 venv + 安装依赖 ──
+log_info "创建 venv (xikiy) ..."
+sudo rm -rf "$_PROD_DIR/backend/.venv"
+sudo -u xikiy python3 -m venv "$_PROD_DIR/backend/.venv"
+sudo -u xikiy "$_PROD_DIR/backend/.venv/bin/pip" install --upgrade pip -q 2>/dev/null || true
+
+_WHEEL_TAR="$_PROD_DIR/offline-packages/wheels-loongarch64.tar.gz"
+if [ -f "$_WHEEL_TAR" ]; then
+  log_info "安装 Python 依赖 (LoongArch 离线) ..."
+  sudo -u xikiy bash -c "
+    _TMP=\$(mktemp -d)
+    tar xzf '$_WHEEL_TAR' -C \"\$_TMP\" 2>/dev/null || true
+    _CNT=0
+    for _whl in \$(find \"\$_TMP\" -name '*.whl' ! -name 'numpy*' 2>/dev/null); do
+      '$_PROD_DIR/backend/.venv/bin/pip' install --no-deps \"\$_whl\" 2>/dev/null && _CNT=\$((_CNT+1)) || true
+    done
+    _NUMPY_WHL=\$(find \"\$_TMP\" -name 'numpy*.whl' 2>/dev/null | head -1)
+    if [ -n \"\$_NUMPY_WHL\" ]; then
+      '$_PROD_DIR/backend/.venv/bin/pip' install --no-deps \"\$_NUMPY_WHL\" 2>/dev/null && _CNT=\$((_CNT+1)) || true
+    fi
+    rm -rf \"\$_TMP\"
+    echo \"installed:\$_CNT\"
+  " 2>&1 | tail -5
+  log_ok "Python 依赖已安装"
+
+  #修复 pydantic 版本检查 (离线包 pydantic-core 版本号可能不匹配)
+  _CORE_VER=$(sudo -u xikiy "$_PROD_DIR/backend/.venv/bin/pip" show pydantic-core 2>/dev/null | awk '/Version/ {print $2}')
+  if [ -n "$_CORE_VER" ]; then
+    _VER_FILE=$(find "$_PROD_DIR/backend/.venv" -path '*/pydantic/version.py' 2>/dev/null | head -1)
+    _META_FILE=$(find "$_PROD_DIR/backend/.venv" -path '*/pydantic-*.dist-info/METADATA' 2>/dev/null | head -1)
+    [ -f "$_VER_FILE" ] && sudo -u xikiy sed -i "s/'2\.[0-9]\+\.[0-9]\+'/'$_CORE_VER'/g" "$_VER_FILE" 2>/dev/null || true
+    [ -f "$_META_FILE" ] && sudo -u xikiy sed -i "s/pydantic-core==[0-9.]*/pydantic-core>=$_CORE_VER/" "$_META_FILE" 2>/dev/null || true
+    log_info "pydantic 版本检查已适配 ($_CORE_VER)"
+  fi
 else
-  log_warn "未找到 sudo/wheel 组, 跳过组添加 (sudoers 文件兜底)"
+  log_info "在线安装依赖..."
+  sudo -u xikiy "$_PROD_DIR/backend/.venv/bin/pip" install -r "$_PROD_DIR/backend/requirements.txt" -q 2>/dev/null || true
 fi
 
-#配置 sudoers 白名单
+#── 6d. 配置 .env + 创建数据目录 ──
+sudo -u xikiy mkdir -p "$_PROD_DIR/backend/data"
+sudo -u xikiy tee "$_PROD_DIR/backend/.env" > /dev/null << ENVEOF
+MAX_RISK_LEVEL=restricted
+REQUIRE_CONFIRMATION=true
+AUDIT_ENABLED=true
+DATABASE_URL=sqlite+aiosqlite:///$_PROD_DIR/backend/data/xikiy_aiops.db
+ENVEOF
+log_ok ".env 已生成"
+
+#── 6e. 以 xikiy 身份初始化数据库 ──
+sudo -u xikiy rm -f "$_PROD_DIR/backend/data/xikiy_aiops.db" 2>/dev/null || true
+sudo -u xikiy bash -c "cd '$_PROD_DIR/backend' && '$_PROD_DIR/backend/.venv/bin/python' -c \"
+from app.db import init_db
+import asyncio
+asyncio.run(init_db())
+\"" 2>&1 | tail -1
+log_ok "数据库已初始化"
+
+#── 6f. 配置 sudoers ──
 _SUDOERS_SRC="$PROJECT_DIR/scripts/sudoers.d/xikiy-aiops"
 if [ -f "$_SUDOERS_SRC" ]; then
   sudo install -m 440 "$_SUDOERS_SRC" /etc/sudoers.d/xikiy-aiops
-  log_ok "sudoers 已配置 (NOPASSWD 白名单)"
-else
-  log_warn "未找到 sudoers 配置文件: $_SUDOERS_SRC"
+  log_ok "sudoers 已配置 (%xikiy 组免密)"
 fi
 
-#文件权限: 确保 xikiy 可访问项目文件
-_PROD_DIR="/opt/xikiy-aiops"
-if [ -d "$_PROD_DIR" ]; then
-  sudo chown -R xikiy:xikiy "$_PROD_DIR" 2>/dev/null || true
-fi
-if [ -d "/var/backups/xikiy" ]; then
-  sudo chown -R xikiy:xikiy /var/backups/xikiy 2>/dev/null || true
-fi
-
-#systemd service: User=xikiy
+#── 6g. systemd 服务 ──
 _SVC_FILE="/etc/systemd/system/xikiy-aiops.service"
-if [ -f "$_SVC_FILE" ]; then
-  sudo sed -i 's/^User=.*/User=xikiy/' "$_SVC_FILE"
-  sudo systemctl daemon-reload 2>/dev/null || true
-  log_ok "systemd service User=xikiy"
+if [ ! -f "$_SVC_FILE" ]; then
+  sudo tee "$_SVC_FILE" > /dev/null << SERVICEEOF
+[Unit]
+Description=xikiy-aiops 智能运维 Agent
+After=network.target
+
+[Service]
+Type=simple
+User=xikiy
+WorkingDirectory=$_PROD_DIR/backend
+ExecStart=$_PROD_DIR/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SERVICEEOF
+  sudo systemctl daemon-reload
+  sudo systemctl enable xikiy-aiops 2>/dev/null || true
+  log_ok "systemd 服务已注册"
+fi
+
+#── 6h. xikiy 入必要组 ──
+#sudo 命令需要 sudo/wheel 组; journalctl 需要 systemd-journal/adm 组
+if getent group sudo >/dev/null 2>&1; then
+  sudo usermod -aG sudo xikiy 2>/dev/null || true
+elif getent group wheel >/dev/null 2>&1; then
+  sudo usermod -aG wheel xikiy 2>/dev/null || true
+fi
+if getent group systemd-journal >/dev/null 2>&1; then
+  sudo usermod -aG systemd-journal xikiy 2>/dev/null || true
+fi
+if getent group adm >/dev/null 2>&1; then
+  sudo usermod -aG adm xikiy 2>/dev/null || true
+fi
+if [ "$_DEPLOY_USER" != "root" ]; then
+  sudo usermod -aG xikiy "$_DEPLOY_USER" 2>/dev/null || true
 fi
 
 echo ""
 echo -e "  ${BOLD}${GREEN}✅ 部署完成${NC}"
-echo -e "  启动: ${BOLD}bash scripts/start.sh${NC}"
-echo -e "  访问: ${BOLD}http://localhost:8001${NC}"
+echo -e "  启动服务: ${BOLD}bash $_PROD_DIR/scripts/start.sh${NC}"
 echo ""

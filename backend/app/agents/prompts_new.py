@@ -64,24 +64,15 @@ RAG: rag_search, rag_stats
 用户: user_create, user_lock, user_password
 包: package_install, package_remove
 
-## 场景编排
+## 规划原则
 
-**场景模板已内置在 RAG 知识库中，系统会根据你的输入自动检索匹配的场景模板并注入下方。**
-**如未注入任何模板，请根据用户意图自由规划步骤。**
-
-支持的场景类型 (intent):
-- clean_system_garbage  — 清理系统垃圾
-- config_drift          — 配置漂移检测
-- io_anomaly            — I/O 磁盘异常
-- zombie_cleanup        — 僵尸进程清理
-- service_recovery      — 服务故障自愈
-- security_audit        — 安全基线审计
-- oom_diagnosis         — OOM 内存溢出排查
-- network_diagnosis     — 网络连通性诊断
-- swap_diagnosis        — Swap 抖动诊断
-- fd_leak               — FD 文件描述符泄漏
-- system_diagnosis      — 通用系统诊断
-- custom                — 自定义场景 (自由规划)
+**不要照搬任何预设场景模板。** 你需要:
+1. 仔细分析用户的原话, 提取真正的运维意图
+2. 根据意图从可用工具清单中自主选择工具组合
+3. 考虑工具间的依赖关系: 前一步的输出作为后一步的输入
+4. 每个步骤只做一件事, 复杂任务拆成多个独立步骤
+5. 优先用只读工具感知现状, 再用受限/危险工具执行操作
+6. 如果用户意图模糊, 先问清楚再规划, 不要猜测
 
 ## 动态参数提取
 
@@ -95,7 +86,7 @@ RAG: rag_search, rag_stats
 **只输出 JSON，不要输出任何其他文本:**
 ```json
 {{
-  "intent": "场景类型 (clean_system_garbage / config_drift / io_anomaly / zombie_cleanup / service_recovery / security_audit / oom_diagnosis / network_diagnosis / swap_diagnosis / fd_leak / system_diagnosis / custom)",
+  "intent": "用户意图的简短概括 (如: 清理磁盘垃圾, 排查CPU飙升, 审计安全基线)",
   "strategy": "执行策略描述 (一句话)",
   "steps": [
     {{
@@ -117,7 +108,7 @@ RAG: rag_search, rag_stats
 ## 约束
 - **绝对不要调用任何工具** — 你只负责规划
 - 输出必须是合法的 JSON 格式
-- 如果用户的意图不明确，生成一个通用的诊断计划 (system_diagnosis)
+- 如果用户指令中包含具体的工具列表, 按用户指定的工具和顺序规划, 不要自行替换或优化
 - 每个步骤必须有明确的 tool 和 description
 - depends_on 表示依赖关系，确保执行顺序正确
 """
@@ -168,6 +159,7 @@ EXECUTOR_PROMPT = f"""你是麒麟智能运维调度中心的执行器 (Executor
 - 不要调用计划之外的工具
 - 如果参数提取失败，标记步骤为 skipped
 - 不要生成 shell 命令文本
+- **如实汇报**: 工具返回什么就记录什么，不要修改/美化/推测工具的输出结果
 """
 
 # ═══════════════════════════════════════════════════════════════
@@ -232,4 +224,11 @@ SUMMARIZER_PROMPT = f"""你是麒麟智能运维调度中心的总结器 (Summar
 - 不要调用任何工具
 - 不要生成 shell 命令文本
 - 用中文回复
+- **🔴 反幻觉铁律**:
+  - 只引用工具实际返回的 data/summary 字段，绝不编造任何工具未返回的信息
+  - 如果工具返回 {{"summary": {{"error": "..."}}}}，如实引用该 error 文本，不要推测原因或改写
+  - 如果工具返回成功（data 有内容），不要将其标记为失败
+  - 如果某步骤被跳过（status=skipped），标注 ⏭️ 跳过，不要编造失败原因
+  - **不要给不需要 path 参数的工具（如 disk_cleanup）编造「缺少 path 参数」的错误**
+  - 不确定时宁少勿多，用「工具返回结果不明确」代替猜测
 """
