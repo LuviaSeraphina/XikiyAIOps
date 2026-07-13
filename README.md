@@ -1,167 +1,86 @@
-# XikiyAIOps — 面向麒麟操作系统的安全智能运维 Agent
-
-> 第十五届中国软件杯大赛 A 组赛题 | 出题企业：麒麟软件有限公司
-> 版本: v1.0.0
+# XikiyAIOps — linux系统智能运维 Agent
 
 ---
 
-## 项目简介
+## 一句话
 
-基于 MCP 协议构建的智能运维 Agent，作为自然语言与 Linux 操作系统交互的安全桥梁。大模型通过调用封装好的 MCP Tool 感知系统状态、执行运维任务——**AI 永远不直接接触 Shell**。
+用自然语言管理 Linux 服务器。AI 不接触 Shell，全部走 82 个安全封装的 MCP 运维工具。
 
-### 核心亮点
+## 核心亮点
 
 | 亮点 | 说明 |
 |------|------|
-| 🔒 多层安全护栏 | 4 层意图过滤 + 7 层注入检测 + 3 级权限代理，全链路防护 |
-| 🔧 51 个 MCP Tool | 进程/网络/磁盘/内存/安全/系统/容器/健康配置，8 大类全覆盖 |
-| 🖥️ 麒麟 OS 适配 | 自动检测 dnf/nftables/龙芯架构，兼容通用 Linux |
-| 🧠 多 LLM 支持 | Ollama (qwen3) / DeepSeek / Qwen / OpenAI，工厂模式切换 |
-| 🎨 Vue 3 前端 | 对话/仪表盘/审计日志三页面，SSE 流式输出 |
-| 📊 智能根因分析 | 4 种异常检测算法 + 5 维度健康评分 (0~100) |
-
----
+| 🗣️ 自然语言运维 | "看看系统状态" → Agent 动态规划 4 步 → 执行 → 报告，零命令行 |
+| 🔒 纵深安全护栏 | 意图过滤 + 注入检测 + 三级权限代理 + xikiy 降权 + 命令白名单 |
+| 🔧 82 个 MCP Tool | 进程/磁盘/网络/内存/安全/系统/容器/运维/配置/知识库，15 插件 |
+| 🧠 动态规划 | 不依赖预设场景，LLM 根据意图自主选择工具组合 |
+| 🛡️ 反幻觉机制 | Summarizer 6 条铁律 + Executor 如实汇报 + status 字段 |
+| 🖥️ 麒麟原生适配 | dnf/nftables/LoongArch 自动检测，离线 CDN 拉取依赖 |
+| 🎨 Vue 3 前端 | 对话 / 仪表盘 / 审计 / 模型配置，SSE 流式 |
 
 ## 架构
 
 ```
-用户 (Web UI) ──→ FastAPI ──→ registry.call() ──→ MCP Tool 执行
-                      │               │
-                 ┌────┴────┐    ┌─────┴──────┐
-                 │ 安全护栏 │    │ 51 Tools   │
-                 │ intent   │    │ process(7) │
-                 │ injection│    │ disk(5)    │
-                 │ permission│   │ network(6) │
-                 └─────────┘    │ memory(5)  │
-                                │ security(13)│
-                                │ system(10) │
-                                │ container(3)│
-                                │ health(2)  │
-                                └───────────┘
+用户 (Web UI) ──→ FastAPI ──→ Security Agent (安全审查)
                       │
+                 Planner Agent (意图分析 → 动态规划)
+                      │
+                 Executor Agent (按步执行 MCP Tool)
+                      │
+                 Summarizer Agent (反幻觉报告)
+                      │
+              ┌───────┴────────┐
+              │  MCP 注册中心   │
+              │  82 Tools (15) │
+              └───────┬────────┘
                  LLM (DeepSeek / Qwen)
 ```
 
----
-
-## 快速启动
+## 快速部署
 
 ```bash
-# 一键部署 (自动适配 x86_64 / LoongArch)
-bash scripts/deploy.sh
+# 1. 解压
+tar xzf XikiyAIOps_v1.2.0_loongarch64.tar.gz
+cd XikiyAIOps_v1.2.0
 
-# 部署后启动前后端
-bash scripts/start.sh
+# 2. 一键部署 (LoongArch 自动从 CDN 拉取离线依赖)
+sudo bash scripts/deploy.sh
+
+# 3. 启动
+bash /opt/xikiy-aiops/scripts/start.sh
+
+# 4. 浏览器打开 → 模型配置 → 输入 API Key → 对话
+#    http://localhost:8001
 ```
 
-| 服务 | 地址 | 用途 |
-|------|------|------|
-| 后端 API | `http://localhost:8001/health` | MCP Tool 调用 + 安全护栏 |
-| Swagger | `http://localhost:8001/docs` | API 文档 |
-| 前端 | `http://localhost:8001` | 对话/仪表盘/审计 (dev: `http://localhost:5173`) |
+## MCP 工具 (82 Tools)
 
----
-
-## 安全护栏体系
-
-```
-用户输入
-  → ① intent_filter.classify_intent()     四层意图分类 + 威胁评分
-  → ② injection_detector.detect_injection() 七层注入检测 (含同形字/零宽/Bidi)
-  → ③ injection_detector.validate_llm_output() LLM 输出二次校验
-  → ④ permission_agent.check_permission()   三级权限预检 + sudo 降权
-  → ⑤ _common.run_command()                23 个命令白名单 + 高危参数拦截
-  → ⑥ registry.call()                      统一执行入口
-```
-
----
-
-## MCP 插件 (51 Tools)
-
-| 插件 | Tools | 说明 |
+| 插件 | 数量 | 说明 |
 |------|:--:|------|
-| **process** | 7 | inspect, detail, tree, zombie_scan, top_cpu, top_memory, kill 🔴 |
-| **disk** | 5 | inspect, inode_usage, io_stats, mount_audit, large_files |
-| **network** | 6 | listening_ports, connections_summary, interface_stats, firewall_audit, tcp_retrans, dns_check |
-| **memory** | 5 | info, swap_info, oom_history, hugepages, slab_info |
-| **security** | 13 | auth_failures, active_sessions, suid_scan, crontab_audit, kernel_modules, pending_updates, user_audit, sysctl_audit, user_list, open_files, selinux_status, password_policy, user_privilege |
-| **system** | 10 | info, load, failed_services, boot_params, package_updates, entropy, cpu_detail, bios_info, journal_query, journal_tail |
-| **container** | 3 | list, stats, inspect |
-| **health_config** | 2 | get (read_only), set (restricted 🟡) |
+| process | 12 | inspect, detail, tree, zombie, top_cpu, top_mem, smaps, io_top, kill🔴, renice🟡, ionice🟡, zombie_cleanup🟡 |
+| disk | 5 | inspect, inode, io_stats, mount_audit, large_files |
+| network | 8 | ports, connections, interfaces, firewall, tcp_retrans, dns, ping, http |
+| memory | 5 | info, swap, oom_history, hugepages, slab |
+| security | 12 | auth_failures, sessions, suid, crontab, kernel_mods, updates, user_audit, sysctl, open_files, selinux, password, privilege |
+| system | 10 | info, load, failed_svcs, boot, packages, entropy, cpu, bios, journal_query, journal_tail |
+| container | 3 | list, stats, inspect |
+| ops | 5 | file_identify, file_read, file_truncate🟡, disk_cleanup🟡, logrotate🟡 |
+| service | 1 | service_control🟡 |
+| config | 4 | diff, backup🟡, restore🟡, sysctl_set🟡 |
+| network_sec | 3 | fw_add🔴, fw_del🔴, dns_flush🟡 |
+| user_pkg | 6 | user_create🔴, user_lock🔴, user_pass🔴, pkg_install🔴, pkg_remove🔴, pkg_update🟡 |
+| health | 2 | get, set🟡 |
+| rag | 2 | search, stats |
+| threat_hunt | 1 | hunt |
 
-> 🔴 = dangerous, 🟡 = restricted, 其余 49 个均为 read_only
+> 🔴 dangerous · 🟡 restricted · 其余 read_only
 
----
-
-## 项目结构
+## 安全模型
 
 ```
-XikiyAIOps/
-├── backend/app/
-│   ├── core/                     # 安全护栏核心引擎
-│   │   ├── intent_filter.py      # 意图风险过滤器 v2.0
-│   │   ├── injection_detector.py # Prompt 注入检测 v2.0
-│   │   ├── permission_agent.py   # 最小权限执行代理 v2.0
-│   │   ├── platform_detect.py    # 麒麟 OS 平台检测
-│   │   └── rca_analyzer.py       # 根因分析引擎
-│   ├── mcp_plugins/             # MCP 插件 (8 大类 51 Tools)
-│   │   ├── base.py              # 注册中心 + 风险预检
-│   │   ├── _common.py           # 共享工具 + 命令白名单
-│   │   ├── process_plugin.py    # 进程感知 (7 Tools)
-│   │   ├── disk_plugin.py       # 磁盘感知 (5 Tools)
-│   │   ├── network_plugin.py    # 网络感知 (6 Tools)
-│   │   ├── memory_plugin.py     # 内存 + OOM (5 Tools)
-│   │   ├── security_plugin.py   # 安全态势 (13 Tools)
-│   │   ├── system_plugin.py     # 系统健康 (10 Tools)
-│   │   └── container_plugin.py  # 容器感知 (3 Tools)
-│   ├── api/                     # REST API (chat + audit)
-│   ├── llm/                     # LLM 适配层 (4 Provider)
-│   └── models/                  # 数据模型 (SQLAlchemy)
-├── frontend/                    # Vue 3 + Element Plus + ECharts
-│   └── src/
-│       ├── views/               # ChatView / DashboardView / AuditLogView
-│       ├── components/          # chat / dashboard / audit / common
-│       ├── api/                 # SSE 流式 / 仪表盘 / 审计 API
-│       ├── stores/              # Pinia (chat / system / audit)
-│       └── router/              # Vue Router
-├── docs/                        # 赛题文档 (6 份)
-├── scripts/                     # deploy.sh + package.sh
-└── dist/                        # 安装包 + 源码包
+用户输入 → intent_filter → injection_detector → permission_agent
+  → _SUDO_COMMANDS (15 命令白名单) → run_command (高危参数拦截)
+  → registry.call (统一执行 + 脱敏)
 ```
 
----
-
-## 技术栈
-
-| 层 | 技术 |
-|----|------|
-| 后端 | Python 3.11+ + FastAPI |
-| MCP | 自研 Plugin 系统 + MCPTool Registry |
-| 前端 | Vue 3 + Element Plus + ECharts + Pinia + TypeScript |
-| LLM | Ollama (Qwen3) / DeepSeek / Qwen / OpenAI |
-| 安全 | 4+7+3 层防护 + 命令白名单 + 高危参数拦截 |
-| 数据库 | SQLite (SQLAlchemy AsyncSession) |
-| 部署 | 麒麟 V11 (LoongArch) / 通用 Linux (x86_64) — 架构自动适配 |
-
----
-
-## 赛题交付物
-
-| # | 文件 | 说明 |
-|:--:|------|------|
-| 1 | `docs/01-需求分析.md` | 软件功能需求分析文档 |
-| 2 | `docs/02-系统设计.md` | 软件功能设计文档 |
-| 3 | `docs/03-产品说明书.md` | 软件产品说明书 |
-| 4 | `docs/04-测试报告.md` | 软件功能测试报告 (68/71 通过) |
-| 5 | `docs/05-性能测试报告.md` | 软件性能测试报告 |
-| 6 | `dist/xikiy-aiops-v1.0.0.tar.gz` | 软件安装包 |
-| 7 | `dist/xikiy-aiops-v1.0.0-src.tar.gz` | 软件源代码压缩包 |
-| 6* | `docs/06-部署文档.md` | 部署文档 |
-| 8 | (待制作) | 演示 PPT |
-| 9 | (待制作) | 演示视频 (≤7min) |
-
----
-
-## License
-
-MIT
+Agent 以专用 `xikiy` 用户运行，sudo 白名单精确到 15 个命令，systemd-journal/adm 组读日志。
