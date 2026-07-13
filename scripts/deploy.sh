@@ -46,19 +46,37 @@ command -v apt &>/dev/null && PKG_MGR="apt"
 [ -z "$PKG_MGR" ] && { log_err "未检测到 dnf/apt"; exit 1; }
 
 _HAS_RPM=false; _HAS_WHEELS=false
-[ -f "$OFFLINE_DIR/rpms.tar.gz" ] && _HAS_RPM=true
-[ -f "$OFFLINE_DIR/wheels-loongarch64.tar.gz" ] && _HAS_WHEELS=true
-
-#离线包仅在 LoongArch 上可用 (RPM 为 ky11.loongarch64, wheel 含原生 .so)
-if [ "$IS_LOONGARCH" = false ]; then
-  [ "$_HAS_RPM" = true ] && log_warn "跳过离线 RPM (当前架构 $ARCH ≠ loongarch64)"
-  [ "$_HAS_WHEELS" = true ] && log_warn "跳过离线 Wheel (当前架构 $ARCH ≠ loongarch64)"
-  _HAS_RPM=false
-  _HAS_WHEELS=false
+#LoongArch: 从 GitHub Release 拉取离线依赖
+_OFFLINE_URL="https://download.xikiyworkshop.xyz/XikiyAIOps/loongarch-offline.tar.gz"
+if [ "$IS_LOONGARCH" = true ]; then
+  _OFFLINE_TGZ="$PROJECT_DIR/offline-packages/loongarch-offline.tar.gz"
+  if [ -f "$_OFFLINE_TGZ" ]; then
+    log_info "检测到本地离线包, 跳过下载"
+  else
+    mkdir -p "$OFFLINE_DIR"
+    log_info "下载 LoongArch 依赖..."
+    _DL_OK=false
+    #优先 curl, 回退 wget
+    if command -v curl &>/dev/null; then
+      curl -L --connect-timeout 30 --max-time 3600 --progress-bar -o "$_OFFLINE_TGZ" "$_OFFLINE_URL" && _DL_OK=true
+    fi
+    if [ "$_DL_OK" = false ] && command -v wget &>/dev/null; then
+      wget -T 30 -t 3 --show-progress -O "$_OFFLINE_TGZ" "$_OFFLINE_URL" && _DL_OK=true
+    fi
+    if [ "$_DL_OK" = false ]; then
+      log_err "下载失败: $_OFFLINE_URL"
+      log_err "请手动下载并放入 offline-packages/ 目录"
+      exit 1
+    fi
+    log_ok "离线包下载完成"
+  fi
+  #解压到 offline-packages/ 供后续步骤使用
+  tar xzf "$_OFFLINE_TGZ" -C "$PROJECT_DIR/" 2>/dev/null || true
+  _HAS_RPM=true
+  _HAS_WHEELS=true
 fi
 
 echo "  OS: $OS_ID | 架构: $ARCH | 包管理: $PKG_MGR"
-echo "  离线 RPM: $_HAS_RPM | 离线 Wheel: $_HAS_WHEELS"
 
 install_pkg() {
   if [ "$PKG_MGR" = "dnf" ]; then
@@ -387,6 +405,23 @@ print('数据库就绪')
 " 2>&1 | tail -1
 log_ok "数据库就绪"
 
+#RAG 知识库索引
+log_info "构建 RAG 知识库索引..."
+#LoongArch: 确保 numpy 能 import (本地 wheel 可能 Fortran 链接不匹配)
+if [ "$IS_LOONGARCH" = true ]; then
+  if ! "$VENV_PYTHON" -c "import numpy" 2>/dev/null; then
+    log_warn "本地 numpy wheel 不可用, 切换系统 python3-numpy..."
+    "$VENV_PIP" uninstall -y numpy 2>/dev/null || true
+    sudo dnf install -y python3-numpy 2>/dev/null || sudo apt install -y python3-numpy 2>/dev/null || true
+  fi
+fi
+"$VENV_PYTHON" -c "
+from app.rag.ingestion import build_knowledge_base
+build_knowledge_base(force=True)
+print('RAG 就绪')
+" 2>&1 | tail -3
+log_ok "RAG 知识库已索引"
+
 #验证
 echo ""
 _TOOLS=$(sudo -u xikiy "$_PROD_DIR/backend/.venv/bin/python" -c "from app.mcp_plugins.base import registry; print(registry.count)" 2>/dev/null || echo "0")
@@ -423,7 +458,12 @@ sudo chown -R xikiy:xikiy "$_PROD_DIR"
 #── 6c. 以 xikiy 身份创建 venv + 安装依赖 ──
 log_info "创建 venv (xikiy) ..."
 sudo rm -rf "$_PROD_DIR/backend/.venv"
-sudo -u xikiy python3 -m venv "$_PROD_DIR/backend/.venv"
+#LoongArch: --system-site-packages 复用系统 numpy/scipy, 避免 Fortran 符号缺失
+if [ "$IS_LOONGARCH" = true ]; then
+  sudo -u xikiy python3 -m venv "$_PROD_DIR/backend/.venv" --system-site-packages
+else
+  sudo -u xikiy python3 -m venv "$_PROD_DIR/backend/.venv"
+fi
 sudo -u xikiy "$_PROD_DIR/backend/.venv/bin/pip" install --upgrade pip -q 2>/dev/null || true
 
 _WHEEL_TAR="$_PROD_DIR/offline-packages/wheels-loongarch64.tar.gz"
@@ -444,6 +484,16 @@ if [ -f "$_WHEEL_TAR" ]; then
     echo \"installed:\$_CNT\"
   " 2>&1 | tail -5
   log_ok "Python 依赖已安装"
+
+  #LoongArch: 验证 numpy 能否正常 import
+  if [ "$IS_LOONGARCH" = true ]; then
+    if ! sudo -u xikiy "$_PROD_DIR/backend/.venv/bin/python" -c "import numpy" 2>/dev/null; then
+      log_warn "numpy 导入失败, 尝试从系统包安装..."
+      sudo dnf install -y python3-numpy 2>/dev/null || sudo apt install -y python3-numpy 2>/dev/null || true
+    else
+      log_info "numpy 导入正常"
+    fi
+  fi
 
   #修复 pydantic 版本检查 (离线包 pydantic-core 版本号可能不匹配)
   _CORE_VER=$(sudo -u xikiy "$_PROD_DIR/backend/.venv/bin/pip" show pydantic-core 2>/dev/null | awk '/Version/ {print $2}')
@@ -477,6 +527,23 @@ import asyncio
 asyncio.run(init_db())
 \"" 2>&1 | tail -1
 log_ok "数据库已初始化"
+
+#── 6e2. RAG 知识库索引 (xikiy) ──
+log_info "构建 RAG 知识库索引..."
+#LoongArch: 确保 numpy 可用
+if [ "$IS_LOONGARCH" = true ]; then
+  if ! sudo -u xikiy "$_PROD_DIR/backend/.venv/bin/python" -c "import numpy" 2>/dev/null; then
+    log_warn "本地 numpy wheel 不可用, 切换系统 python3-numpy..."
+    sudo -u xikiy "$_PROD_DIR/backend/.venv/bin/pip" uninstall -y numpy 2>/dev/null || true
+    sudo dnf install -y python3-numpy 2>/dev/null || sudo apt install -y python3-numpy 2>/dev/null || true
+  fi
+fi
+sudo -u xikiy bash -c "cd '$_PROD_DIR/backend' && PYTHONPATH='$_PROD_DIR/backend' '$_PROD_DIR/backend/.venv/bin/python' -c \"
+from app.rag.ingestion import build_knowledge_base
+build_knowledge_base(force=True)
+print('RAG 就绪')
+\"" 2>&1 | tail -3
+log_ok "RAG 知识库已索引"
 
 #── 6f. 配置 sudoers ──
 _SUDOERS_SRC="$PROJECT_DIR/scripts/sudoers.d/xikiy-aiops"
