@@ -47,7 +47,7 @@ command -v apt &>/dev/null && PKG_MGR="apt"
 
 _HAS_RPM=false; _HAS_WHEELS=false
 #LoongArch: 从 GitHub Release 拉取离线依赖
-_OFFLINE_URL="https://download.xikiyworkshop.xyz/XikiyAIOps/loongarch-offline.tar.gz"
+_OFFLINE_URL="https://download.xikiyworkshop.xyz/XikiyAIOps%20v1.2.0-competition-Loongarch64/loongarch-offline.tar.gz"
 if [ "$IS_LOONGARCH" = true ]; then
   _OFFLINE_TGZ="$PROJECT_DIR/offline-packages/loongarch-offline.tar.gz"
   if [ -f "$_OFFLINE_TGZ" ]; then
