@@ -28,3 +28,6 @@ TODO/
 data/
 docs/CHANGELOG.md
 build-deb-loongarch.sh
+package-loongarch.sh
+XikiyAIOps.pptx
+llm_config.json
