@@ -1,8 +1,7 @@
 """
 数据库引擎与异步会话管理
 
-开发环境: SQLite + aiosqlite
-生产环境: PostgreSQL + asyncpg (通过 DATABASE_URL 切换)
+环境: SQLite + aiosqlite
 
 用法:
     # FastAPI 路由中 (依赖注入):
