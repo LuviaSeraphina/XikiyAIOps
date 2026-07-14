@@ -67,6 +67,9 @@ async def chat_send(request: Request):
 
             yield f"event: {event['event']}\ndata: {json.dumps(event['data'],ensure_ascii=False)}\n\n"
 
+        #流正常结束 — 发 done 事件通知前端
+        yield f"event: done\ndata: {json.dumps({})}\n\n"
+
         #流结束后持久化
         if session_id and collected_events:
             try:

@@ -210,6 +210,7 @@ class Orchestrator:
                 
                 if not confirmed:
                     _logger.info(f"[阶段 2] 用户拒绝步骤 {step.id}")
+                    PENDING_CONFIRMS.pop(session_id, None)
                     result = StepResult(
                         step_id=step.id, tool_name=step.tool,
                         status=StepStatus.SKIPPED, error='用户取消'
