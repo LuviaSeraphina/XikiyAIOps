@@ -33,17 +33,16 @@
               │  MCP 注册中心   │
               │  82 Tools (15) │
               └───────┬────────┘
-                 LLM (DeepSeek / Qwen)
+                 LLM (自定义Provider)
 ```
 
 ## 快速部署
 
 ```bash
 # 1. 解压
-tar xzf XikiyAIOps_v1.2.0_loongarch64.tar.gz
+tar xzf XikiyAIOps_v1.2.0.tar.gz
 cd XikiyAIOps_v1.2.0
 
-# 2. 一键部署 (LoongArch 自动从 CDN 拉取离线依赖)
 sudo bash scripts/deploy.sh
 
 # 3. 启动
