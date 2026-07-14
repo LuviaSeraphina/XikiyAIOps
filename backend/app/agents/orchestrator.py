@@ -8,6 +8,7 @@ v4.0: Planner → Executor → Summarizer
 阶段 3: Summarizer 整合结果，生成报告
 """
 import json
+import asyncio
 import logging
 from typing import List, Dict, AsyncGenerator
 from .security import SecurityAgent
@@ -158,16 +159,72 @@ class Orchestrator:
             
             # 需要用户确认
             if reason == "NEED_CONFIRM":
-                _logger.info(f"[阶段 2] 步骤 {step.id} 需要用户确认")
+                _logger.info(f"[阶段 2] 步骤 {step.id} 需要用户确认, 等待前端...")
+                from app.services.confirm_state import PENDING_CONFIRMS, CONFIRM_RESULTS
+                
+                # 生成 tool_call_id
+                tool_call_id = f"{session_id}_{step.id}_{step.tool}"
+                
+                # 1. 发送 security_check (收集到待确认列表)
                 yield {
-                    "event": "confirm",
+                    "event": "security_check",
                     "data": {
-                        "step_id": step.id, "tool": step.tool,
-                        "params": params, "risk": tool_risk,
-                        "description": step.description
+                        "tool_call_id": tool_call_id,
+                        "tool_name": step.tool,
+                        "summary": step.description,
+                        "details": str(step.params),
+                        "risk_level": tool_risk,
                     }
                 }
-                _logger.info(f"[阶段 2] 用户已确认，继续执行")
+                # 2. 发送 awaiting_confirmation (触发前端弹窗)
+                yield {
+                    "event": "awaiting_confirmation",
+                    "data": {"message": "有高危操作需要您确认"}
+                }
+                
+                # 3. 暂停等待用户确认
+                event = asyncio.Event()
+                PENDING_CONFIRMS[session_id] = event
+                try:
+                    await asyncio.wait_for(event.wait(), timeout=120.0)
+                    decisions = CONFIRM_RESULTS.get(session_id, {})
+                    confirmed = decisions.get(tool_call_id, False)
+                    CONFIRM_RESULTS.pop(session_id, None)
+                except asyncio.TimeoutError:
+                    _logger.warning(f"[阶段 2] 确认超时, 跳过步骤 {step.id}")
+                    PENDING_CONFIRMS.pop(session_id, None)
+                    CONFIRM_RESULTS.pop(session_id, None)
+                    result = StepResult(
+                        step_id=step.id, tool_name=step.tool,
+                        status=StepStatus.SKIPPED, error='确认超时'
+                    )
+                    results.append(result)
+                    yield {
+                        "event": "step_result",
+                        "data": {
+                            "step_id": step.id, "tool": step.tool,
+                            "status": "SKIPPED", "error": "确认超时"
+                        }
+                    }
+                    continue
+                
+                if not confirmed:
+                    _logger.info(f"[阶段 2] 用户拒绝步骤 {step.id}")
+                    result = StepResult(
+                        step_id=step.id, tool_name=step.tool,
+                        status=StepStatus.SKIPPED, error='用户取消'
+                    )
+                    results.append(result)
+                    yield {
+                        "event": "step_result",
+                        "data": {
+                            "step_id": step.id, "tool": step.tool,
+                            "status": "SKIPPED", "error": "用户取消"
+                        }
+                    }
+                    continue
+                
+                _logger.info(f"[阶段 2] 用户已确认步骤 {step.id}, 继续执行")
             
             # 执行工具（支持重试）
             max_attempts = step.max_retries + 1
