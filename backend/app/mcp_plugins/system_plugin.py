@@ -1,7 +1,7 @@
 """
 MCP 系统健康感知
 
-v2: 集成 KYSDK 原生硬件检测 (CPU/BIOS/系统版本), 非麒麟回落 psutil + shell
+v3: psutil psutil + shell
 """
 import os
 import re
@@ -11,10 +11,8 @@ from datetime import datetime
 from app.mcp_plugins._common import(
     run_command as _run_command,
     _cmd_ok,
-    _sdk_call,
     make_response as _make_response,
     error_response as _error_response,
-    _kysdk_import,
     journalctl_available,
 )
 
@@ -74,46 +72,10 @@ def _detect_platform():
 """
 方法: system_info(), 系统概览: 主机名/内核/发行版/架构/运行时间
 
-v2: KYSDK SystemInfo 优先 (麒麟原生), 回落 psutil + /etc/os-release
+v3: psutil psutil + /etc/os-release
 """
 def system_info():
     try:
-        #优先 KYSDK
-        SystemInfo=_kysdk_import("SystemInfo")
-        if SystemInfo:
-            try:
-                si=SystemInfo()
-                boot_time_str=None
-                try:
-                    boot_ts=si.get_boot_time()
-                    if boot_ts:
-                        boot_time_str=datetime.fromtimestamp(boot_ts).strftime("%Y-%m-%d %H:%M:%S")
-                except Exception:
-                    pass
-
-                return _make_response("system_info",
-                    data={
-                        "hostname": _sdk_call(si, "get_hostname") or platform.node(),
-                        "os": _sdk_call(si, "get_version", 0) or _sdk_call(si, "get_system_name") or platform.system(),
-                        "kernel": _sdk_call(si, "get_kernel_version") or platform.release(),
-                        "arch": _sdk_call(si, "get_architecture") or platform.machine(),
-                        "boot_time": boot_time_str,
-                        "kylin_production_line": _sdk_call(si, "get_production_line"),
-                        "kylin_major_version": _sdk_call(si, "get_major_version"),
-                        "kylin_alias": _sdk_call(si, "get_version_alias"),
-                        "source": "kysdk.SystemInfo",
-                    },
-                    summary={
-                        "hostname": _sdk_call(si, "get_hostname") or platform.node(),
-                        "os": _sdk_call(si, "get_version", 0) or "Kylin",
-                        "arch": _sdk_call(si, "get_architecture") or platform.machine(),
-                        "source": "kysdk",
-                    },
-                )
-            except Exception:
-                pass  #回落
-
-        #回落 psutil + shell
         plat=_detect_platform()
         hostname=platform.node()
         kernel=platform.release()
@@ -338,50 +300,15 @@ def system_entropy():
         return _error_response("system_entropy", e)
 
 
-# ── KYSDK 原生硬件检测工具 (麒麟 SDK 优先, 非麒麟回落 shell) ──
+# ── 硬件检测 ──
 
 """
 方法: system_cpu_detail(), CPU 详细信息: 厂商/型号/频率/缓存/虚拟化/线程数
 
-KYSDK libkycpu 优先 (15 项 API), 回落 /proc/cpuinfo 解析
+psutil + /proc/cpuinfo 解析
 """
 def system_cpu_detail():
     try:
-        #尝试通过 KYSDK Hardware 模块获取
-        Hardware=_kysdk_import("Hardware")
-        if Hardware:
-            try:
-                hw=Hardware()
-                cpu_info={
-                    "arch": _sdk_call(hw, "get_cpu_arch") or "unknown",
-                    "vendor": _sdk_call(hw, "get_cpu_vendor") or "unknown",
-                    "model": _sdk_call(hw, "get_cpu_model") or "unknown",
-                    "freq_mhz": _sdk_call(hw, "get_cpu_freq_mhz") or "0",
-                    "cores": _sdk_call(hw, "get_cpu_core_count") or 0,
-                    "threads": _sdk_call(hw, "get_cpu_thread_count") or 0,
-                    "virtualization": _sdk_call(hw, "get_cpu_virtualization") or "unknown",
-                    "l1d_cache_kb": _sdk_call(hw, "get_cpu_l1d_cache") or 0,
-                    "l1i_cache_kb": _sdk_call(hw, "get_cpu_l1i_cache") or 0,
-                    "l2_cache_kb": _sdk_call(hw, "get_cpu_l2_cache") or 0,
-                    "l3_cache_kb": _sdk_call(hw, "get_cpu_l3_cache") or 0,
-                    "max_freq_mhz": _sdk_call(hw, "get_cpu_max_freq_mhz") or 0,
-                    "min_freq_mhz": _sdk_call(hw, "get_cpu_min_freq_mhz") or 0,
-                    "sockets": _sdk_call(hw, "get_cpu_sockets") or 0,
-                    "source": "kysdk.Hardware",
-                }
-                if cpu_info["vendor"]!="unknown":
-                    return _make_response("system_cpu_detail",
-                        data=cpu_info,
-                        summary={
-                            "model": cpu_info["model"],
-                            "cores": cpu_info["cores"],
-                            "source": "kysdk.Hardware",
-                        },
-                    )
-            except Exception:
-                pass
-
-        #回落 /proc/cpuinfo
         result=_run_command(["cat", "/proc/cpuinfo"], timeout=5)
         if not _cmd_ok(result):
             return _error_response("system_cpu_detail", "读取 /proc/cpuinfo 失败")
@@ -420,31 +347,10 @@ def system_cpu_detail():
 """
 方法: system_bios_info(), BIOS 信息: 厂商/版本/日期/类型
 
-KYSDK libkybios 优先, 回落 dmidecode (需 root)
+ dmidecode (需 root)
 """
 def system_bios_info():
     try:
-        #优先通过 KYSDK Hardware 模块
-        Hardware=_kysdk_import("Hardware")
-        if Hardware:
-            try:
-                hw=Hardware()
-                bios={
-                    "vendor": _sdk_call(hw, "get_bios_vendor"),
-                    "version": _sdk_call(hw, "get_bios_version"),
-                    "date": _sdk_call(hw, "get_bios_date"),
-                    "type": _sdk_call(hw, "get_bios_type"),
-                    "source": "kysdk.Hardware",
-                }
-                if any(bios.values()):
-                    return _make_response("system_bios_info",
-                        data=bios,
-                        summary={"vendor": bios.get("vendor","unknown"), "source": "kysdk.Hardware"},
-                    )
-            except Exception:
-                pass
-
-        #回落 dmidecode (需 root)
         result=_run_command(["dmidecode", "-t", "bios"], timeout=5)
         if not _cmd_ok(result):
             return _make_response("system_bios_info",
@@ -506,7 +412,7 @@ def _parse_journal_entries(lines, keyword=""):
 方法: system_journal_query(), 日志查询 — 按服务/时间/级别/关键词过滤
 
 v0.3 新增: 补上感知层的最大缺口, 支持 LLM 应答"查一下系统日志"。
-底层 journalctl, 支持 KYSDK AuditLog 集成预留。
+底层 journalctl
 """
 def system_journal_query(service="", hours=1, priority="err", keyword="", max_lines=50):
     try:

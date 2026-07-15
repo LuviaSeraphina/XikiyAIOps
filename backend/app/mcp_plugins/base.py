@@ -296,20 +296,19 @@ def _auto_register_all(reg):
     ))
     reg.register(MCPTool(
         name="security_selinux_status",
-        description="SELinux/AppArmor 运行模式检测: KYSDK Selinux 优先, 回落 getenforce + aa-status",
+        description="SELinux/AppArmor 运行模式检测: getenforce + aa-status",
         handler=_safe_import("app.mcp_plugins.security_plugin", "security_selinux_status"),
         risk_level=RiskLevel.READ_ONLY,
     ))
-    #KYSDK 新增: 密码策略 + 用户权限审计
     reg.register(MCPTool(
         name="security_password_policy",
-        description="系统密码复杂度策略检查: KYSDK UserAuth 优先, 回落 PAM 配置解析",
+        description="系统密码复杂度策略检查: PAM 配置解析",
         handler=_safe_import("app.mcp_plugins.security_plugin", "security_password_policy"),
         risk_level=RiskLevel.READ_ONLY,
     ))
     reg.register(MCPTool(
         name="security_user_privilege",
-        description="指定用户权限审计: KYSDK UserAuth 优先 (sudo权限+home目录), 回落 sudo -l",
+        description="指定用户权限审计: sudo -l",
         handler=_safe_import("app.mcp_plugins.security_plugin", "security_user_privilege"),
         risk_level=RiskLevel.READ_ONLY,
         parameters={
@@ -416,16 +415,15 @@ def _auto_register_all(reg):
         handler=_safe_import("app.mcp_plugins.system_plugin", "system_entropy"),
         risk_level=RiskLevel.READ_ONLY,
     ))
-    #KYSDK 新增: CPU 详情 + BIOS 信息
     reg.register(MCPTool(
         name="system_cpu_detail",
-        description="CPU 详细信息: 厂商/型号/频率/核心/线程/缓存(L1/L2/L3)/虚拟化 — KYSDK libkycpu 优先",
+        description="CPU 详细信息: /proc/cpuinfo 解析",
         handler=_safe_import("app.mcp_plugins.system_plugin", "system_cpu_detail"),
         risk_level=RiskLevel.READ_ONLY,
     ))
     reg.register(MCPTool(
         name="system_bios_info",
-        description="BIOS 信息: 厂商/版本/日期/类型 — KYSDK libkybios 优先, 回落 dmidecode",
+        description="BIOS 信息: 厂商/版本/日期/类型 — dmidecode",
         handler=_safe_import("app.mcp_plugins.system_plugin", "system_bios_info"),
         risk_level=RiskLevel.READ_ONLY,
     ))

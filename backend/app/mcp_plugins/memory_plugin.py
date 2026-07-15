@@ -1,7 +1,7 @@
 """
 MCP 内存与 OOM 监控插件
 
-v2: KYSDK SystemInfo 优先 (麒麟原生), 回落 psutil
+v3: psutil
 """
 import psutil
 import re
@@ -11,7 +11,6 @@ from app.mcp_plugins._common import(
     make_response as _make_response,
     error_response as _error_response,
     alert_if as _alert_if,
-    _kysdk_import,
 )
 
 # GB 单位
@@ -29,32 +28,10 @@ _OOM_KILLED_PATTERN=re.compile(r"Killed process (\d+) \((.+?)\)")
 """
 方法: memory_info(), 物理内存画像
 
-v2: KYSDK SystemInfo 优先 (麒麟原生), 回落 psutil
+v3: psutil
 """
 def memory_info():
     try:
-        #优先 KYSDK
-        SystemInfo=_kysdk_import("SystemInfo")
-        if SystemInfo:
-            try:
-                si=SystemInfo()
-                mem=si.get_memory_info()
-                if mem and isinstance(mem, dict):
-                    usage_percent=mem.get("used_percent", 0)
-                    alert=usage_percent>90
-                    return _make_response("memory_info",
-                        data={**mem, "source": "kysdk.SystemInfo"},
-                        summary={
-                            "usage_percent": usage_percent,
-                            "alert": alert,
-                            "alert_reason": _alert_if(alert, "物理内存({}%)即将耗尽", usage_percent),
-                            "source": "kysdk.SystemInfo",
-                        },
-                    )
-            except Exception:
-                pass
-
-        #回落 psutil
         mem=psutil.virtual_memory()
 
         #物理内存

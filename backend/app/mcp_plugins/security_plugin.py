@@ -33,8 +33,6 @@ from app.mcp_plugins._common import (
     read_log_file as _read_log_file,
     error_response as _error_response,
     alert_if as _alert_if,
-    _kysdk_available,
-    _kysdk_import,
 )
 
 _AUTH_FAILURE_PATTERNS=[
@@ -102,35 +100,11 @@ def _match_auth_lines(lines):
 """
 方法: security_auth_failures(), 多源登录失败检测
 
-v2: KYSDK AuditLog 优先 (麒麟原生, 零 shell 注入), 回落 journalctl/auth.log
+v3: journalctl journalctl/auth.log
 统计近 hours 小时内的登录失败事件, 返回按 IP/用户聚合的计数和细分类别"
 """
 def security_auth_failures(hours=24):
     try:
-        #优先 KYSDK AuditLog (麒麟原生)
-        AuditLog=_kysdk_import("AuditLog")
-        if AuditLog:
-            try:
-                audit=AuditLog()
-                failed_attempts=audit.get_failed_attempts()
-                user_logins=audit.get_user_logins("*")
-                if failed_attempts is not None:
-                    return _make_response("security_auth_failures",
-                        data={
-                            "failed_attempts": failed_attempts if isinstance(failed_attempts, list) else [failed_attempts],
-                            "recent_logins": user_logins if isinstance(user_logins, list) else [user_logins],
-                            "source": "kysdk.AuditLog",
-                        },
-                        summary={
-                            "total_failures": len(failed_attempts) if isinstance(failed_attempts, list) else 0,
-                            "source": "kysdk.AuditLog",
-                            "hours": hours,
-                        },
-                    )
-            except Exception:
-                pass  #KYSDK 失败, 回落 shell
-
-        #回落 journalctl / auth.log
         if _journalctl_available():
             records=_parse_journalctl_auth(hours)
             source="journalctl"
@@ -705,34 +679,10 @@ def security_open_files(top_n=10):
 """
 方法: security_selinux_status(), SELinux/AppArmor 运行模式检测
 
-v2: KYSDK Selinux 优先, 回落 /sys/fs/selinux + getenforce + aa-status
+v2: getenforce /sys/fs/selinux + getenforce + aa-status
 """
 def security_selinux_status():
     try:
-        #优先 KYSDK Selinux (麒麟原生)
-        Selinux=_kysdk_import("Selinux")
-        if Selinux:
-            try:
-                sel=Selinux()
-                se_mode=sel.get_status()
-                if se_mode in ("enforcing", "permissive", "disabled"):
-                    se_enabled=se_mode!="disabled"
-                    return _make_response("security_selinux_status",
-                        data={
-                            "selinux": {"enabled": se_enabled, "mode": se_mode, "source": "kysdk.Selinux"},
-                            "apparmor": {"enabled": None, "active": None},
-                        },
-                        summary={
-                            "mac_type": "selinux" if se_enabled else "none",
-                            "mode": se_mode,
-                            "alert": not se_enabled,
-                            "alert_reason": _alert_if(not se_enabled, "SELinux 未启用, 缺少强制访问控制 (MAC) 保护"),
-                        },
-                    )
-            except Exception:
-                pass  #KYSDK 失败, 回落 shell
-
-        #回落 shell 检测
         se_enabled=False
         se_mode="disabled"
         se_mount=os.path.exists("/sys/fs/selinux")
@@ -814,30 +764,15 @@ def security_selinux_status():
         return _error_response("security_selinux_status", e)
 
 
-# ── KYSDK 原生工具 (麒麟 SDK 优先, 非麒麟回落 shell) ────────
+# ── 密码策略 + 用户权限 ──
 
 """
 方法: security_password_policy(), 系统密码复杂度策略检查
 
-KYSDK 优先 (UserAuth.get_password_policy), 回落 /etc/pam.d/* 解析
+/etc/pam.d/* 解析
 """
 def security_password_policy():
     try:
-        #优先 KYSDK
-        UserAuth=_kysdk_import("UserAuth")
-        if UserAuth:
-            try:
-                auth=UserAuth()
-                policy=auth.get_password_policy()
-                if policy:
-                    return _make_response("security_password_policy",
-                        data={"policy": policy, "source": "kysdk.UserAuth"},
-                        summary={"source": "kysdk.UserAuth", "alert": False},
-                    )
-            except Exception:
-                pass
-
-        #回落: 解析 PAM 配置
         policy={}
         for pam_file in ["/etc/pam.d/common-password", "/etc/pam.d/system-auth"]:
             if os.path.exists(pam_file):
@@ -871,7 +806,7 @@ def security_password_policy():
 """
 方法: security_user_privilege(), 指定用户权限审计
 
-KYSDK UserAuth 优先 (check_sudo + check_home_permission), 回落 shell
+shell
 """
 def security_user_privilege(username=None):
     try:
@@ -887,33 +822,6 @@ def security_user_privilege(username=None):
                 data={"username": username, "error": "非法用户名格式"},
                 summary={"alert": False, "alert_reason": f"用户名 '{username}' 包含非法字符"},
             )
-
-        #优先 KYSDK
-        UserAuth=_kysdk_import("UserAuth")
-        if UserAuth:
-            try:
-                auth=UserAuth()
-                sudo_status=auth.check_sudo(username)
-                home_status=auth.check_home_permission(username)
-                if sudo_status is not None:
-                    return _make_response("security_user_privilege",
-                        data={
-                            "username": username,
-                            "sudo_access": sudo_status,
-                            "home_permission": home_status,
-                            "source": "kysdk.UserAuth",
-                        },
-                        summary={
-                            "has_sudo": bool(sudo_status),
-                            "source": "kysdk.UserAuth",
-                            "alert": bool(sudo_status),
-                            "alert_reason": _alert_if(bool(sudo_status), f"用户 {username} 具有 sudo 权限"),
-                        },
-                    )
-            except Exception:
-                pass
-
-        #回落: root 直接返回 (root 始终有 sudo)
         if username=="root":
             return _make_response("security_user_privilege",
                 data={
