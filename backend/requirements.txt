@@ -79,3 +79,14 @@ pygments>=2.20
 # chromadb>=0.5            # 向量存储 (可选, x86_64推荐)
 # sentence-transformers>=3.0  # 嵌入模型 (可选, x86_64推荐)
 # LoongArch: 无需安装, 原生 sqlite3 + DeepSeek Embedding API 自动适配
+langchain==1.3.13
+langchain-classic==1.0.8
+langchain-community==0.4.2
+langchain-core==1.4.9
+langchain-openai==1.3.5
+langchain-protocol==0.0.18
+langchain-text-splitters==1.1.2
+langgraph==1.2.9
+langgraph-checkpoint==4.1.1
+langgraph-prebuilt==1.1.0
+langgraph-sdk==0.4.2

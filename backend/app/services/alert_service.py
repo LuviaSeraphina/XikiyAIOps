@@ -18,7 +18,7 @@ from typing import Dict, Any, Optional
 from sqlalchemy import select
 from app.db import async_session
 from app.models.alert import Alert
-from app.agents.orchestrator import Orchestrator
+from app.llm.langchain_agent import plan_execute_chat
 
 _logger=logging.getLogger("xikiy_aiops.alert")
 
@@ -167,11 +167,10 @@ async def _run_diagnosis(alert_id: str, alert_name: str, instance: str, severity
 """
 
     try:
-        orch=Orchestrator()
         tool_results=[]
         llm_analysis=""
 
-        async for event in orch.run(prompt, session_id=f"alert-{alert_id}"):
+        async for event in plan_execute_chat(prompt):
             event_type=event.get("event", "")
             data=event.get("data", {})
 

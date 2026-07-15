@@ -150,7 +150,17 @@ def _extract_metrics(tool_results):
 方法: chat_stream(), 主入口 — 三阶段流水线 (v4.0)
 """
 async def chat_stream(user_input, history=None, session_id=""):
-    from app.agents import Orchestrator
-    orch=Orchestrator()
-    async for event in orch.run(user_input, history, session_id):
-        yield event
+    """v4.2: LangChain ReAct + PlanAndExecute 双模 Agent"""
+    from app.llm.langchain_agent import react_chat, plan_execute_chat
+    
+    #简单任务用 ReAct, 复杂任务用 PlanExecute
+    is_simple=len(user_input)<=15 or any(
+        kw in user_input for kw in ["你好","帮助","help","版本","version","介绍"]
+    )
+    
+    if is_simple:
+        async for event in react_chat(user_input):
+            yield event
+    else:
+        async for event in plan_execute_chat(user_input):
+            yield event
