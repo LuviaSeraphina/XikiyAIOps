@@ -12,6 +12,7 @@
         <option value="read_only">安全 (read_only)</option>
         <option value="restricted">需确认 (restricted)</option>
         <option value="dangerous">高危 (dangerous)</option>
+        <option value="critical">致命 (critical)</option>
       </select>
       <button
         class="anomaly-toggle"

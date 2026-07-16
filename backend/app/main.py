@@ -16,7 +16,7 @@ async def lifespan(app: FastAPI):
     yield
     #关闭时: 清理资源 (如有需要)
 
-app=FastAPI(title="XikiyAIOps", version="1.0.0", lifespan=lifespan)
+app=FastAPI(title="XikiyAIOps", version="2.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

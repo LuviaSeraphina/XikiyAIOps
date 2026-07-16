@@ -192,6 +192,8 @@ async def _persist_chat(session_id,user_input,events,tools_called,stage_input_ev
         security_rules=[]  #每个 tool 的安全校验信息: [{tool_name, summary, risk_level}]
         #每个工具的真实执行结果 (包含 stdout/stderr/duration_ms)
         tool_executions=[]
+        #意图审计结果 (从 plan 事件提取)
+        intent_audit=None
 
         for evt in events:
             etype=evt.get("event","")
@@ -199,6 +201,21 @@ async def _persist_chat(session_id,user_input,events,tools_called,stage_input_ev
 
             if etype=="token":
                 assistant_content+=edata.get("text","")
+
+            elif etype=="plan":
+                #提取意图审计信息
+                audit=edata.get("audit",{})
+                if audit and isinstance(audit,dict):
+                    intent_audit={
+                        "risk_score":audit.get("risk_score",0),
+                        "blocked":audit.get("blocked",False),
+                        "recommendation":audit.get("recommendation",""),
+                        "alerts":audit.get("alerts",[]),
+                    }
+
+            elif etype=="agent_answer":
+                #捕获最终报告作为 assistant 内容
+                assistant_content=edata.get("content","")
 
             elif etype in ("tool_call","step_start"):
                 #v4.0: Orchestrator 发 step_start (字段 tool), 旧路径 tool_call (字段 tool_name)
@@ -279,10 +296,13 @@ async def _persist_chat(session_id,user_input,events,tools_called,stage_input_ev
                 "tool_calls":tool_calls_collected if tool_calls_collected else None,
             })
 
-        risk_level=_derive_risk_level(events)
+        risk_level=_derive_risk_level(events, intent_audit)
         has_error=any(e.get("event")=="error" for e in events)
         error_messages=[e.get("data",{}).get("message","") for e in events if e.get("event")=="error"]
-        blocked=has_error
+        #意图审计触发拦截 → 标记异常
+        intent_blocked=intent_audit.get("blocked",False) if intent_audit else False
+        intent_high_risk=(intent_audit.get("risk_score",0) or 0)>=50 if intent_audit else False
+        blocked=has_error or intent_blocked
 
         #先保存 Conversation + Messages
         await save_conversation(db, session_id, messages, title)
@@ -316,8 +336,12 @@ async def _persist_chat(session_id,user_input,events,tools_called,stage_input_ev
 
         #无 tool 调用时仍产生一条审计记录 (如纯对话被拦截)
         if not tool_executions:
-            is_anomaly=blocked or has_error
+            is_anomaly=blocked or has_error or intent_high_risk
             anomaly_type=classify_anomaly(events, [])
+            if intent_blocked:
+                anomaly_type="security_blocked"
+            elif intent_high_risk:
+                anomaly_type="dangerous_blocked"
             stage_exec={
                 "action_taken":"对话完成" if not is_anomaly else "被拦截",
                 "tool_executions":[],
@@ -335,7 +359,7 @@ async def _persist_chat(session_id,user_input,events,tools_called,stage_input_ev
         else:
             #v3: 一次对话一条 AuditLog, 记录全部调用的工具
             tool_names=[te["tool_name"] for te in tool_executions]
-            any_anomaly=any(te["is_anomaly"] for te in tool_executions)
+            any_anomaly=any(te["is_anomaly"] for te in tool_executions) or intent_high_risk
             any_skipped=any(te.get("status")=="skipped" for te in tool_executions)
 
             tool_perception={
@@ -361,7 +385,7 @@ async def _persist_chat(session_id,user_input,events,tools_called,stage_input_ev
                 "action_taken":f"执行 {len(tool_executions)} 个工具" if not any_anomaly else f"{'部分' if any_anomaly else ''}工具执行异常",
                 "tool_executions":tool_executions,
                 "is_anomaly":any_anomaly,
-                "anomaly_type":"tool_error" if any_anomaly else "none",
+                "anomaly_type":"security_blocked" if intent_blocked else ("dangerous_blocked" if intent_high_risk else ("tool_error" if any_anomaly else "none")),
                 "duration_ms":sum(te.get("duration_ms",0) for te in tool_executions),
             }
             tool_exec["causal_chain"]=build_causal_chain(
@@ -389,7 +413,11 @@ def _build_audit_item(s1, s2, s3, s4, s5, is_anomaly, anomaly_type):
 """
 方法: _derive_risk_level(), 从事件流推断风险等级
 """
-def _derive_risk_level(events):
+def _derive_risk_level(events, intent_audit=None):
+    """从事件流 + 意图审计 推断综合风险等级"""
+    #意图审计 > 50 分 → dangerous
+    if intent_audit and (intent_audit.get("risk_score",0) or 0)>=50:
+        return "dangerous"
     for evt in events:
         data=evt.get("data", {})
         rl=data.get("risk_level", "")

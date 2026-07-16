@@ -101,7 +101,7 @@ def _migrate_db(conn):
 
 
 """
-方法: init_db(), 首次启动时创建所有表 + 执行迁移
+方法: init_db(), 首次启动时创建所有表 + 执行迁移 + RBAC 种子
 
 生产环境应使用 Alembic 管理迁移, 此处的 _migrate_db 为轻量级替代方案。
 """

@@ -86,10 +86,20 @@ defineEmits<{
 const totalPages = computed(() => Math.max(1, Math.ceil(props.total / props.pageSize)))
 
 function riskColor(level: RiskLevel): string {
-  return level === 'dangerous' ? '#ef4444' : level === 'restricted' ? '#f59e0b' : '#22c55e'
+  switch (level) {
+    case 'critical':   return '#7c3aed'
+    case 'dangerous':  return '#ef4444'
+    case 'restricted': return '#f59e0b'
+    default:           return '#22c55e'
+  }
 }
 function riskLabel(level: RiskLevel): string {
-  return level === 'dangerous' ? '高危' : level === 'restricted' ? '受限' : '安全'
+  switch (level) {
+    case 'critical':   return '致命'
+    case 'dangerous':  return '高危'
+    case 'restricted': return '受限'
+    default:           return '安全'
+  }
 }
 function formatTime(ts: string): string {
   if (!ts) return ''
@@ -174,6 +184,7 @@ function formatTime(ts: string): string {
 .risk-read_only  { background: var(--color-safe-soft); color: var(--color-safe); }
 .risk-restricted { background: var(--color-warning-soft); color: var(--color-warning); }
 .risk-dangerous  { background: var(--color-danger-soft); color: var(--color-danger); }
+.risk-critical   { background: #ede9fe; color: #7c3aed; }
 
 .row-time {
   font-size: 11px;

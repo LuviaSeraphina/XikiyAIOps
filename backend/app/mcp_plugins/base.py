@@ -34,9 +34,10 @@ from app.mcp_plugins._common import sanitize_response
 
 
 class RiskLevel(str, Enum):
-    READ_ONLY="read_only"
-    RESTRICTED="restricted"
-    DANGEROUS="dangerous"
+    READ_ONLY="read_only"       #只读感知, 所有用户可执行
+    RESTRICTED="restricted"     #受限操作, 需用户二次确认
+    DANGEROUS="dangerous"       #高危操作, 管理员授权方可执行
+    CRITICAL="critical"         #致命操作, 永久拦截不可执行
 
 
 class MCPTool:
@@ -97,12 +98,13 @@ class MCPPluginRegistry:
 
     def list_by_risk(self, max_risk):
     # 按风险等级过滤 Tool
-        risk_order={RiskLevel.READ_ONLY: 0, RiskLevel.RESTRICTED: 1, RiskLevel.DANGEROUS: 2}
+        risk_order={RiskLevel.READ_ONLY: 0, RiskLevel.RESTRICTED: 1, RiskLevel.DANGEROUS: 2, RiskLevel.CRITICAL: 3}
         max_level=risk_order[RiskLevel(max_risk)]
         return [t for t in self._tools.values() if risk_order[t.risk_level]<=max_level]
 
     def call(self, name, _raw=False, **kwargs):
-    # 统一调用入口, 自动校验 risk_level + 权限预检         _raw=True: 跳过脱敏 (供 Agent 内部感知用, 前端展示仍需单独脱
+    # 统一调用入口, 自动校验 risk_level + 权限预检
+    # _raw=True: 跳过脱敏
         tool=self._tools.get(name)
         if not tool:
             return {"tool": name, "status": "error", "risk_level": "error", "data": {}, "summary": {"error": "Tool not found: {}".format(name)}}
@@ -171,7 +173,7 @@ def _auto_register_all(reg):
         name="process_kill",
         description="终止指定进程 (SIGTERM/SIGKILL), 多级安全护栏阻止终止 init/自身/关键系统进程",
         handler=_safe_import("app.mcp_plugins.process_plugin", "process_kill_handler"),
-        risk_level=RiskLevel.DANGEROUS,
+        risk_level=RiskLevel.CRITICAL,
         parameters={
             "pid": {"type": "integer", "description": "目标进程 PID"},
             "signal_name": {"type": "string", "default": "SIGTERM", "description": "信号名称: SIGTERM (优雅终止) 或 SIGKILL (强制终止)"},
@@ -783,6 +785,99 @@ def _auto_register_all(reg):
         description="仅安装安全更新 — apt upgrade --only-upgrade / dnf update --security",
         handler=_safe_import("app.mcp_plugins.user_pkg_plugin", "package_update_security"),
         risk_level=RiskLevel.RESTRICTED,
+    ))
+
+    #── Docker 沙箱 (v2.1) ──
+    reg.register(MCPTool(
+        name="sandbox_exec",
+        description="在 Docker 隔离容器中执行命令。网络隔离/只读根文件系统/CPU+内存限制/超时保护。适合安全地运行不可信脚本或测试高危命令",
+        handler=_safe_import("app.mcp_plugins.sandbox_plugin", "sandbox_exec_handler"),
+        risk_level=RiskLevel.RESTRICTED,
+        parameters={
+            "command": {"type": "string", "description": "要执行的 shell 命令"},
+            "timeout": {"type": "integer", "default": 30, "minimum": 1, "maximum": 120, "description": "超时秒数 (最大120)"},
+            "image": {"type": "string", "default": "alpine:latest", "description": "Docker 镜像 (默认 alpine)"},
+            "read_only": {"type": "boolean", "default": True, "description": "是否只读根文件系统"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="sandbox_status",
+        description="检查 Docker 沙箱健康状态: Docker 可用性/镜像状态/资源限制配置",
+        handler=_safe_import("app.mcp_plugins.sandbox_plugin", "sandbox_status_handler"),
+        risk_level=RiskLevel.READ_ONLY,
+    ))
+
+    #── 自动备份与回滚 (v2.1) ──
+    reg.register(MCPTool(
+        name="backup_create",
+        description="创建完整备份快照 (SQLite 数据库 + 配置文件 + RAG 索引), tar.gz 压缩 + MD5 校验",
+        handler=_safe_import("app.mcp_plugins.backup_plugin", "backup_create_handler"),
+        risk_level=RiskLevel.RESTRICTED,
+        parameters={
+            "label": {"type": "string", "default": "auto", "description": "备份标签 (可选)"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="backup_list",
+        description="列出所有备份快照, 按时间倒序, 含大小和时间戳",
+        handler=_safe_import("app.mcp_plugins.backup_plugin", "backup_list_handler"),
+        risk_level=RiskLevel.READ_ONLY,
+    ))
+    reg.register(MCPTool(
+        name="backup_restore",
+        description="从指定备份快照恢复 — 恢复前自动创建当前状态备份, 确保可回滚",
+        handler=_safe_import("app.mcp_plugins.backup_plugin", "backup_restore_handler"),
+        risk_level=RiskLevel.DANGEROUS,
+        parameters={
+            "archive_name": {"type": "string", "description": "备份文件名 (如 backup_20260716_120000_auto.tar.gz)"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="backup_cleanup",
+        description="清理过期备份, 保留最近 N 个 (最少保留 3 个)",
+        handler=_safe_import("app.mcp_plugins.backup_plugin", "backup_cleanup_handler"),
+        risk_level=RiskLevel.RESTRICTED,
+        parameters={
+            "keep": {"type": "integer", "default": 10, "minimum": 3, "maximum": 50, "description": "保留数量"},
+        },
+    ))
+
+    #── 敏感规则库管理 (v2.1) ──
+    reg.register(MCPTool(
+        name="sensitive_rules_get",
+        description="获取敏感规则配置: 数据脱敏/越狱签名/保护名单/意图审计规则",
+        handler=_safe_import("app.mcp_plugins.sensitive_rules_plugin", "sensitive_rules_get_handler"),
+        risk_level=RiskLevel.READ_ONLY,
+        parameters={
+            "category": {"type": "string", "default": "", "description": "分类: data_sanitize/intent_filter/intent_audit/protected_lists (空=全部)"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="sensitive_rules_set",
+        description="更新敏感规则 — 运行时热加载, 自动验证正则有效性",
+        handler=_safe_import("app.mcp_plugins.sensitive_rules_plugin", "sensitive_rules_set_handler"),
+        risk_level=RiskLevel.DANGEROUS,
+        parameters={
+            "category": {"type": "string", "description": "分类: data_sanitize/intent_filter/intent_audit/protected_lists"},
+            "data": {"type": "string", "description": "JSON 规则数据 (替换整个分类)"},
+        },
+    ))
+    reg.register(MCPTool(
+        name="sensitive_rules_reload",
+        description="强制重新加载敏感规则文件",
+        handler=_safe_import("app.mcp_plugins.sensitive_rules_plugin", "sensitive_rules_reload_handler"),
+        risk_level=RiskLevel.READ_ONLY,
+    ))
+
+    #── 文档同步 (v2.1) ──
+    reg.register(MCPTool(
+        name="doc_sync",
+        description="扫描 docs/ 目录的 .md/.txt/.rst 文档, 增量同步到 RAG 知识库",
+        handler=_safe_import("app.mcp_plugins.rag_plugin", "doc_sync_handler"),
+        risk_level=RiskLevel.RESTRICTED,
+        parameters={
+            "path": {"type": "string", "default": "", "description": "文档目录路径 (空=默认 docs/)"},
+        },
     ))
 
 

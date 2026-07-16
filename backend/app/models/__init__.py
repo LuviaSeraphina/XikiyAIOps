@@ -10,5 +10,6 @@ from app.models.base import Base
 from app.models.conversation import Conversation, Message  # noqa: F401, E402
 from app.models.audit_log import AuditLog  # noqa: F401, E402
 from app.models.alert import Alert  # noqa: F401, E402
+from app.models.pipeline_trace import PipelineTrace  # noqa: F401, E402
 
-__all__=["Base", "Conversation", "Message", "AuditLog", "Alert"]
+__all__=["Base", "Conversation", "Message", "AuditLog", "Alert", "PipelineTrace"]

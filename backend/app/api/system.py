@@ -304,3 +304,43 @@ async def llm_config_models(request: Request):
         return {"code":0,"data":{"models":[],"detail":"连接超时 (15s)"}}
     except Exception as e:
         return {"code":0,"data":{"models":[],"detail":str(e)[:200]}}
+
+#══════════════════════════════════
+# 推理链路追踪 API
+#══════════════════════════════════
+
+@router.get("/traces")
+async def list_traces(page:int=1, size:int=20):
+    """列出所有推理链路追踪记录"""
+    try:
+        from app.db import async_session
+        from app.models.pipeline_trace import PipelineTrace
+        from sqlalchemy import select, desc
+        async with async_session() as db:
+            stmt=select(PipelineTrace).order_by(desc(PipelineTrace.created_at)).offset((page-1)*size).limit(size)
+            result=await db.execute(stmt)
+            traces=result.scalars().all()
+            return {
+                "code":0,
+                "data":[t.to_dict() for t in traces],
+                "total":len(traces),
+            }
+    except Exception as e:
+        return {"code":-1,"data":[],"message":str(e)}
+
+@router.get("/trace/{trace_id}")
+async def get_trace(trace_id:int):
+    """获取单条追踪详情（含完整决策链，支持回放）"""
+    try:
+        from app.db import async_session
+        from app.models.pipeline_trace import PipelineTrace
+        from sqlalchemy import select
+        async with async_session() as db:
+            stmt=select(PipelineTrace).where(PipelineTrace.id==trace_id)
+            result=await db.execute(stmt)
+            trace=result.scalar_one_or_none()
+            if not trace:
+                return {"code":404,"data":None,"message":"Trace not found"}
+            return {"code":0,"data":trace.to_dict()}
+    except Exception as e:
+        return {"code":-1,"data":None,"message":str(e)}

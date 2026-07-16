@@ -5,8 +5,8 @@
 
 // ========== 枚举字面量 ==========
 
-/** MCP 工具风险等级 */
-export type RiskLevel = 'read_only' | 'restricted' | 'dangerous'
+/** MCP 工具风险等级 (四级) */
+export type RiskLevel = 'read_only' | 'restricted' | 'dangerous' | 'critical'
 
 /** 对话消息角色 */
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'

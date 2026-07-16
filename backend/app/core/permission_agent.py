@@ -1,38 +1,39 @@
 """
-最小权限执行代理 v2.0 — 安全护栏第三道防线
+最小权限执行代理 v2.1 — 安全护栏第三道防线 (四级风险)
 
 设计原则:
 1. 操作前权限预检 (当前用户 + Tool 风险等级 → 放行/确认/拦截)
 2. read_only  → 所有用户可执行 (包括 sandbox 用户)
 3. restricted → 需要用户二次确认
-4. dangerous  → 管理员授权方可执行, 默认拦截
-5. 支持 sudo 降权: 高危操作降权到专用低权限用户执行
-6. 保护名单: 关键进程/路径即使 root 也不可操作
+4. dangerous  → 管理员授权方可执行
+5. critical   → 致命操作, 永久拦截不可执行 (即使 root)
+6. 支持 sudo 降权: 高危操作降权到专用低权限用户执行
+7. 保护名单: 关键进程/路径即使 root 也不可操作
 
-v2.0 新增:
-- 专用 xikiy-aiops 系统用户 (xikiyops)
-- sudo 降权执行机制 (sudo -u xikiyops)
-- 沙箱执行上下文 (sandbox mode)
-- 权限审计跟踪
+v2.1 新增:
+- critical 风险等级 (四级), 永久拦截
 """
 import os
 import pwd
 import grp
 import shutil
+import shlex
+import subprocess
 
 
 # 风险等级 → 所需权限等级
 _RISK_PERMISSION_MAP={
-    "read_only":"ops_basic",#任何人可执行
-    "restricted":"ops_advanced",#sudo 组成员可执行
-    "dangerous":"ops_admin",#仅 root 可执行
+    "read_only":"ops_basic",     #任何人可执行
+    "restricted":"ops_advanced", #sudo 组成员可执行
+    "dangerous":"ops_admin",     #仅 root 可执行
+    "critical":"ops_blocked",    #永久拦截, 不可执行
 }
 
 
 # 专用低权限用户配置
 # XikiyAIOps 专用系统用户 (建议部署时创建)
-# sudo useradd -r -s /bin/false -d /nonexistent -M xikiyops
-_XIKIY_OPS_USER="xikiyops"
+# sudo useradd -r -s /bin/false -d /nonexistent -M xikiy
+_XIKIY_OPS_USER="xikiy"
 
 # 沙箱模式下使用的降权用户
 _SANDBOX_USER="nobody"  # fallback: 系统自带的低权限用户
@@ -81,7 +82,7 @@ def _current_user():
 
 
 """
-方法: _is_xikiy_ops_user_available(), 检查专用 xikiyops 用户是否已创建
+方法: _is_xikiy_ops_user_available(), 检查专用 xikiy 用户是否已创建
 
 """
 
@@ -141,6 +142,76 @@ def build_sudo_command(cmd_list, target_user=None):
 
 
 """
+方法: _docker_available(), 检查 Docker 是否可用
+
+"""
+def _docker_available():
+    try:
+        r=subprocess.run(["docker","version","--format","{{.Server.Version}}"],
+            capture_output=True,text=True,timeout=3)
+        return r.returncode==0
+    except Exception:
+        return False
+
+
+"""
+方法: build_docker_sandbox_command(), 构建 Docker 沙箱命令 (v2.1)
+
+将高危命令包装为 docker run 执行, 提供:
+- 网络隔离 (--network=none)
+- 只读根文件系统 (--read-only)
+- CPU/内存限制
+- 禁止提权 (--security-opt=no-new-privileges)
+"""
+_DOCKER_SANDBOX_IMAGE="alpine:latest"
+
+def build_docker_sandbox_command(cmd_list):
+    """将命令包装为 Docker 沙箱执行, 返回 docker 命令列表"""
+    if not _docker_available():
+        return None
+    
+    #将命令列表转为 shell 字符串
+    cmd_str=" ".join(shlex.quote(str(c)) for c in cmd_list)
+    
+    return [
+        "docker","run","--rm",
+        "--network=none",
+        "--memory=256m",
+        "--cpus=0.5",
+        "--pids-limit=100",
+        "--security-opt=no-new-privileges",
+        "--read-only",
+        "--tmpfs","/tmp:exec",
+        "--tmpfs","/var/tmp:exec",
+        _DOCKER_SANDBOX_IMAGE,
+        "sh","-c",cmd_str,
+    ]
+
+
+"""
+方法: get_available_sandbox_modes(), 返回可用的沙箱模式 (v2.1)
+
+"""
+def get_available_sandbox_modes():
+    modes=[]
+    su=_get_sandbox_user()
+    if su:
+        modes.append({"mode":"sudo","user":su,"available":True,
+            "desc":f"sudo 降权到 {su}"})
+    else:
+        modes.append({"mode":"sudo","user":None,"available":False,
+            "desc":"sudo 降权 (无可用低权限用户)"})
+    
+    if _docker_available():
+        modes.append({"mode":"docker","image":_DOCKER_SANDBOX_IMAGE,"available":True,
+            "desc":"Docker 容器隔离 (network=none, read-only)"})
+    else:
+        modes.append({"mode":"docker","available":False,
+            "desc":"Docker 不可用"})
+    
+    return modes
+
+"""
 方法: get_available_privilege_levels(), 返回系统可用的权限降级层级 (v2.0)
 """
 def get_available_privilege_levels():
@@ -169,7 +240,7 @@ def get_available_privilege_levels():
 
 
 """
-方法: check_permission(), 操作前权限预检 (v2.0 增强)
+方法: check_permission(), 操作前权限预检
 Returns: (allowed: bool, reason: str, downgrade_user: str|None)
 """
 def check_permission(risk_level, user=None, target=None, action="execute"):
@@ -187,11 +258,15 @@ def check_permission(risk_level, user=None, target=None, action="execute"):
         if target in _PROTECTED_PATHS and required != "ops_basic":
             return False,f"受保护路径 '{target}' 不可操作",None
         if action in ("write", "delete"):
-            # 受限写路径检查
             for restricted in _RESTRICTED_WRITE_PATHS:
                 if target.startswith(restricted + "/") or target == restricted:
                     return False,f"路径 '{target}' 在受限写目录 '{restricted}' 下",None
 
+    # critical — 永久拦截, 即使 root 也不可执行
+    if required=="ops_blocked":
+        return False,f"critical: 致命操作 '{risk_level}' 已被永久拦截, 不可通过 Agent 执行",None
+
+    # ── OS 用户组检查 ──
     # ops_basic (read_only) — 任何用户可执行
     if required=="ops_basic":
         return True,"read_only: 放行",None
@@ -216,6 +291,7 @@ def check_permission(risk_level, user=None, target=None, action="execute"):
 方法: require_confirmation(), 判断操作是否需要用户确认
 """
 def require_confirmation(risk_level):
+    """判断操作是否需要用户确认 (critical 永远不需, 因已被拦截)"""
     return risk_level in ("restricted","dangerous")
 
 """ 

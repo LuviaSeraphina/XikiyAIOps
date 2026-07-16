@@ -73,6 +73,7 @@ const riskLabel = computed(() => {
     case 'read_only':  return '只读'
     case 'restricted': return '受限'
     case 'dangerous':  return '高危'
+    case 'critical':   return '致命'
     default:           return ''
   }
 })
@@ -256,6 +257,7 @@ const summaryFields = computed<SummaryField[]>(() => {
 .risk-read_only  { background: var(--color-safe-soft); color: var(--color-safe); }
 .risk-restricted { background: var(--color-warning-soft); color: var(--color-warning); }
 .risk-dangerous  { background: var(--color-danger-soft); color: var(--color-danger); }
+.risk-critical   { background: #ede9fe; color: #7c3aed; }
 
 .expand-icon {
   flex-shrink: 0;

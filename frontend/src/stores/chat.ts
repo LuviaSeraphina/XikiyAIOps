@@ -120,6 +120,73 @@ export const useChatStore = defineStore('chat', () => {
         agentMsg.content += `\n⏭️ 已跳过: ${(data.tool_name as string) || ''}（${(data.reason as string) || ''}）`
         break
 
+      case 'agent_answer':
+        // PlanExecute 模式最终报告
+        agentMsg.content = (data.content as string) || ''
+        break
+
+      case 'phase':
+        // 阶段提示: planning/executing/verifying/summarizing/blocked/warning
+        const phaseMsg = (data.message as string) || ''
+        if (phaseMsg) {
+          agentMsg.content += `\n> ${phaseMsg}...`
+        }
+        break
+
+      case 'step_start': {
+        // 步骤开始 — 添加到 tool_calls
+        const stepName = (data.tool as string) || ''
+        if (stepName) {
+          agentMsg.tool_calls = agentMsg.tool_calls || []
+          agentMsg.tool_calls.push({
+            id: generateUUID(),
+            tool_name: stepName,
+            arguments: {},
+            status: 'running',
+            risk_level: 'read_only',
+          })
+        }
+        break
+      }
+
+      case 'step_result': {
+        // 步骤结束 — 更新 tool_call 状态
+        const resultTool = (data.tool as string) || ''
+        const stepStatus = (data.status as string) === 'DONE' ? 'done' : 
+                          (data.status as string) === 'FAILED' ? 'error' : 'done'
+        const tcs2 = agentMsg.tool_calls
+        if (tcs2) {
+          for (let i = tcs2.length - 1; i >= 0; i--) {
+            if (tcs2[i].tool_name === resultTool && tcs2[i].status === 'running') {
+              tcs2[i].status = stepStatus as ToolCallStatus
+              tcs2[i].result = data.summary || data.error
+              break
+            }
+          }
+        }
+        break
+      }
+
+      case 'plan':
+        // 规划阶段输出
+        agentMsg.content += `\n📋 **意图**: ${(data.intent as string) || ''}`
+        const planSteps = data.steps as Array<Record<string,unknown>> | undefined
+        if (planSteps && planSteps.length > 0) {
+          agentMsg.content += `\n📝 **计划**: ${planSteps.map(s => `${s.id}. ${s.description || s.tool}`).join(' → ')}`
+        }
+        const auditInfo = data.audit as Record<string,unknown> | undefined
+        if (auditInfo) {
+          const riskScore = auditInfo.risk_score as number
+          if (riskScore > 0) {
+            agentMsg.content += `\n🛡️ 意图审计: 风险分 ${riskScore}/100`
+          }
+        }
+        break
+
+      case 'audit_warning':
+        agentMsg.content += `\n\n⚠️ **安全提示**: ${(data.recommendation as string) || ''}`
+        break
+
       case 'error':
         agentMsg.content += `\n\n❌ ${(data.message as string) || '未知错误'}`
         break

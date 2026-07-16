@@ -86,3 +86,68 @@ def rag_stats_handler():
         )
     except Exception as e:
         return _error_response("rag_stats", f"查询失败: {e}")
+
+
+"""
+方法: doc_sync_handler(), 扫描 docs/ 目录, 增量索引到 RAG 知识库
+
+"""
+def doc_sync_handler(path:str=""):
+    """同步文档到 RAG 知识库 — 扫描指定目录的 .md/.txt 文件并重建索引"""
+    import os
+    from pathlib import Path
+    
+    #默认扫描路径
+    if not path:
+        backend_root=Path(__file__).resolve().parent.parent.parent
+        docs_dir=backend_root / ".." / "docs"
+    else:
+        docs_dir=Path(path)
+    
+    if not docs_dir.exists():
+        return _error_response("doc_sync", f"目录不存在: {docs_dir}")
+    
+    #收集文档
+    synced=[]
+    failed=[]
+    total_size=0
+    
+    for ext in ["*.md","*.txt","*.rst"]:
+        for f in docs_dir.rglob(ext):
+            try:
+                content=f.read_text(encoding="utf-8",errors="replace")
+                if len(content.strip())<10:
+                    continue
+                synced.append({
+                    "file":str(f.relative_to(docs_dir)),
+                    "size":len(content),
+                    "lines":content.count("\n")+1,
+                })
+                total_size+=len(content)
+            except Exception:
+                failed.append(str(f.relative_to(docs_dir)))
+    
+    #尝试重建 RAG 索引
+    rag_note=""
+    try:
+        if _lazy_import():
+            from app.rag import rebuild_index
+            rebuild_index([str(docs_dir)])
+            rag_note="RAG 索引已更新"
+    except Exception as e:
+        rag_note=f"RAG 索引更新跳过: {e}"
+    
+    return _make_response("doc_sync",
+        data={
+            "docs_dir":str(docs_dir),
+            "synced":synced,
+            "failed":failed,
+            "total_files":len(synced),
+            "total_size_kb":round(total_size/1024,1),
+        },
+        summary={
+            "synced":len(synced),
+            "failed":len(failed),
+            "rag_status":rag_note,
+        },
+    )

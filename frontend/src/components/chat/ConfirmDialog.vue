@@ -47,7 +47,7 @@
           />
           <code class="tool-name">{{ tool.tool_name }}</code>
           <span class="risk-tag" :class="`risk-${tool.risk_level}`">
-            {{ tool.risk_level === 'dangerous' ? '高危' : '受限' }}
+            {{ tool.risk_level === 'critical' ? '致命' : tool.risk_level === 'dangerous' ? '高危' : '受限' }}
           </span>
           <el-collapse class="tool-detail-collapse">
             <el-collapse-item title="参数">
@@ -193,6 +193,10 @@ async function handleConfirm() {
 .risk-dangerous {
   color: var(--color-danger);
   background: var(--color-danger-soft);
+}
+.risk-critical {
+  color: #7c3aed;
+  background: #ede9fe;
 }
 .risk-restricted {
   color: var(--color-warning);

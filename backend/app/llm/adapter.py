@@ -147,20 +147,19 @@ def _extract_metrics(tool_results):
 
 
 """
-方法: chat_stream(), 主入口 — 三阶段流水线 (v4.0)
+方法: chat_stream(), 主入口 — v4.3 RBAC 增强
 """
 async def chat_stream(user_input, history=None, session_id=""):
-    """v4.2: LangChain ReAct + PlanAndExecute 双模 Agent"""
+    """v4.3: LangChain ReAct + PlanAndExecute 双模 Agent"""
     from app.llm.langchain_agent import react_chat, plan_execute_chat
     
-    #简单任务用 ReAct, 复杂任务用 PlanExecute
-    is_simple=len(user_input)<=15 or any(
-        kw in user_input for kw in ["你好","帮助","help","版本","version","介绍"]
-    )
+    #仅问候走 ReAct, 其余全走 PlanExecute
+    greeting_kw=["你好","hello","hi","帮助","help","版本","version","介绍","你是谁"]
+    is_simple=any(kw in user_input.lower() for kw in greeting_kw) and len(user_input)<20
     
     if is_simple:
         async for event in react_chat(user_input):
             yield event
     else:
-        async for event in plan_execute_chat(user_input):
+        async for event in plan_execute_chat(user_input, session_id=session_id):
             yield event

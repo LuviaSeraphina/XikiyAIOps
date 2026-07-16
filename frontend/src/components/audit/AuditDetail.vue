@@ -18,7 +18,7 @@
             ⚠ {{ anomalyLabel }}
           </span>
           <span class="risk-badge" :class="'risk-' + item.risk_level">
-            {{ item.risk_level === 'dangerous' ? '高危' : item.risk_level === 'restricted' ? '受限' : '安全' }}
+            {{ riskLabel(item.risk_level) }}
           </span>
         </div>
       </div>
@@ -228,12 +228,21 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import type { AuditLog, TracebackResponse, CausalChain } from '@/types'
+import type { AuditLog, TracebackResponse, CausalChain, RiskLevel } from '@/types'
 import StageBlock from './StageBlock.vue'
 import { fetchTraceback } from '@/api/audit'
 
 const props = defineProps<{ item: AuditLog | null }>()
 const openStage = ref<number | null>(4) // 默认展开安全校验
+
+function riskLabel(level: RiskLevel): string {
+  switch (level) {
+    case 'critical':   return '致命'
+    case 'dangerous':  return '高危'
+    case 'restricted': return '受限'
+    default:           return '安全'
+  }
+}
 
 // v2.1: 异常回溯状态
 const showTraceback = ref(false)
@@ -370,6 +379,7 @@ function formatShortTime(iso: string): string {
 .risk-read_only  { background: var(--color-safe-soft); color: var(--color-safe); }
 .risk-restricted { background: var(--color-warning-soft); color: var(--color-warning); }
 .risk-dangerous  { background: var(--color-danger-soft); color: var(--color-danger); }
+.risk-critical   { background: #ede9fe; color: #7c3aed; }
 
 /* ── Stages ── */
 .stages {

@@ -150,21 +150,74 @@ _PLANNER_PROMPT="""你是麒麟智能运维调度中心的规划器。
 - 只输出 JSON, 不要输出其他文本
 """
 
-async def plan_execute_chat(user_input: str) -> AsyncGenerator[Dict[str,Any], None]:
-    """PlanAndExecute 模式: 适合复杂多步任务, 支持 Replan"""
+def _build_planner_prompt():
+    """动态构建规划器 Prompt, 注入可用工具列表"""
     from app.mcp_plugins.base import registry
+    tools_desc=[]
+    for t in sorted(registry._tools.values(), key=lambda x: x.name):
+        risk=t.risk_level.value
+        emoji={"read_only":"👁","restricted":"🔒","dangerous":"⚠️","critical":"🚫"}.get(risk,"")
+        params=", ".join(t.parameters.keys()) if t.parameters else "无参数"
+        tools_desc.append(f"{emoji} **{t.name}** [{risk}]: {t.description} (参数: {params})")
+    
+    tool_list="\n".join(tools_desc)
+    return _PLANNER_PROMPT+f"\n\n可用工具列表 ({len(tools_desc)} 个):\n{tool_list}"
+
+_RETRY_PROMPT="""你是麒麟智能运维的故障修复器。
+
+一个 MCP 工具调用失败了, 请分析错误并修正参数后重试。
+
+输入:
+- 工具名: {tool_name}
+- 原始参数: {original_params}
+- 错误信息: {error_msg}
+
+输出修正后的参数 JSON:
+{{"fixed_params":{{...}}, "reason":"修正原因简述"}}
+
+如果错误是参数类型/值问题, 修正参数; 如果是工具不可用/权限问题, 将 fixed_params 设为 null。只输出 JSON。"""
+
+_REPLAN_PROMPT="""你是麒麟智能运维调度中心的重新规划器。
+
+以下步骤执行失败, 请重新规划剩余步骤。已知上下文:
+- 原始意图: {intent}
+- 已成功的步骤: {succeeded_steps}
+- 失败步骤: {failed_step} 错误: {error_msg}
+- 当前计划剩余步骤: {remaining_steps}
+
+请输出新的剩余步骤 JSON(从失败步骤之后开始, id 从 {next_id} 编号):
+{{"steps":[{{"id":{next_id},"tool":"...","description":"...","params":{{}}}}]}}
+只输出 JSON。"""
+
+async def plan_execute_chat(user_input: str, session_id: str = "") -> AsyncGenerator[Dict[str,Any], None]:
+    """PlanAndExecute 模式: 适合复杂多步任务, 支持 参数重试→Replan→后置验证 闭环"""
+    from app.mcp_plugins.base import registry
+    import time as _time
     llm=_build_llm()
+    
+    # ── Trace 结构 ──
+    trace={
+        "planning":{"llm_output":"","elapsed_ms":0},
+        "steps":[],
+        "retries":[],
+        "replans":[],
+        "verification":{"passed":False,"feedback":"","elapsed_ms":0},
+        "summarization":{"elapsed_ms":0},
+    }
+    t_start=_time.time()
     
     # Phase 1: Planning
     yield {"event":"phase","data":{"phase":"planning","message":"正在规划..."}}
     
+    t0=_time.time()
     plan_text=llm.invoke([
-        ("system",_PLANNER_PROMPT),
+        ("system",_build_planner_prompt()),
         ("user",user_input),
     ]).content
+    trace["planning"]["llm_output"]=plan_text
+    trace["planning"]["elapsed_ms"]=int((_time.time()-t0)*1000)
     
     try:
-        #提取 JSON
         start=plan_text.find("{")
         end=plan_text.rfind("}")+1
         plan=json.loads(plan_text[start:end])
@@ -175,64 +228,347 @@ async def plan_execute_chat(user_input: str) -> AsyncGenerator[Dict[str,Any], No
     intent=plan.get("intent","未知")
     steps=plan.get("steps",[])
     
-    yield {"event":"plan","data":{"intent":intent,"strategy":"LangChain PlanExecute","steps":steps}}
+    # ── 动态意图审计 (v2.1) ──
+    audit_result=_run_intent_audit(intent, steps, session_id)
+    trace["intent_audit"]={
+        "passed":audit_result["passed"],
+        "risk_score":audit_result["risk_score"],
+        "blocked":audit_result["blocked"],
+        "alerts":audit_result["alerts"],
+        "recommendation":audit_result["recommendation"],
+    }
     
-    # Phase 2: Execution with Replan
-    yield {"event":"phase","data":{"phase":"executing","message":"执行中..."}}
+    #先发 plan 事件 (含审计), 再判断是否拦截 — 确保 persist 能收到审计信息
+    yield {"event":"plan","data":{"intent":intent,"strategy":"LangChain PlanExecute(闭环)","steps":steps,"audit":audit_result}}
     
-    results=[]
-    step_idx=0
-    max_replans=2
-    replan_count=0
+    if audit_result["blocked"]:
+        yield {"event":"phase","data":{"phase":"blocked","message":"意图审计拦截"}}
+        yield {"event":"agent_answer","data":{"content":f"🚫 **操作已被安全策略拦截**\n\n{audit_result['recommendation']}\n\n风险评分: {audit_result['risk_score']}/100\n\n> {chr(10).join(a['msg'] for a in audit_result['alerts'])}"}}
+        await _persist_trace(
+            session_id=session_id, user_input=user_input, intent=intent,
+            plan_json=plan, trace_json=trace,
+            summary=f"意图审计拦截: {audit_result['recommendation']}",
+            total_elapsed_ms=int((_time.time()-t_start)*1000),
+        )
+        return
     
+    if not audit_result["passed"]:
+        yield {"event":"phase","data":{"phase":"warning","message":audit_result["recommendation"]}}
+        yield {"event":"audit_warning","data":audit_result}
     while step_idx<len(steps):
         step=steps[step_idx]
         tool_name=step.get("tool","")
+        params=step.get("params",{})
         tool=registry.get_tool(tool_name)
         
         if not tool:
+            _logger.warning(f"工具不存在: {tool_name}, 跳过")
             step_idx+=1
             continue
         
-        yield {"event":"step_start","data":{"step_id":step["id"],"tool":tool_name,"description":step.get("description","")}}
+        # ── 执行步骤 (含参数重试) ──
+        result,retries_done=_execute_step_with_retry(
+            llm=llm,
+            registry=registry,
+            step=step,
+            trace=trace,
+            max_retries=max_retries,
+        )
         
-        params=step.get("params",{})
-        result=registry.call(tool_name, **params)
+        # Send SSE events
+        for r in retries_done:
+            yield r
         
-        # 执行失败 → Replan
-        if result.get("status")=="error" and replan_count<max_replans:
-            replan_count+=1
+        # 判断是否失败(重试耗尽)
+        if result.get("status")=="error":
             error_msg=result.get("summary",{}).get("error","未知错误")
-            _logger.info(f"步骤 {step['id']} 失败: {error_msg}, 触发 Replan ({replan_count}/{max_replans})")
+            _logger.info(f"步骤 {step['id']} ({tool_name}) 失败(含重试): {error_msg}")
             
             yield {"event":"step_result","data":{"step_id":step["id"],"tool":tool_name,"status":"FAILED","error":error_msg}}
             
-            #生成新计划
-            replan_prompt=f"步骤 {step['id']} ({tool_name}) 失败: {error_msg}。请重新规划剩余步骤。只输出 JSON。"
-            new_plan_text=llm.invoke([
-                ("system",_PLANNER_PROMPT),
-                ("user",replan_prompt),
-            ]).content
-            try:
-                s=new_plan_text.find("{")
-                e=new_plan_text.rfind("}")+1
-                new_plan=json.loads(new_plan_text[s:e])
-                #替换剩余步骤
-                steps=steps[:step_idx]+new_plan.get("steps",[])
-                continue
-            except json.JSONDecodeError:
-                pass
-        
-        yield {"event":"step_result","data":{"step_id":step["id"],"tool":tool_name,"status":"DONE","summary":result.get("summary",{})}}
-        results.append(result)
-        step_idx+=1
+            # 触发 Replan
+            if replan_count<max_replans:
+                replan_count+=1
+                new_steps=_try_replan(llm, trace, intent, steps, step_idx, error_msg, results, replan_count, max_replans)
+                if new_steps:
+                    steps=steps[:step_idx]+new_steps
+                    continue
+            
+            # Replan 失败或耗尽 → 继续执行剩余步骤
+            step_idx+=1
+        else:
+            yield {"event":"step_result","data":{"step_id":step["id"],"tool":tool_name,"status":"DONE","summary":result.get("summary",{})}}
+            results.append(result)
+            step_idx+=1
     
-    # Phase 3: Summarize
+    # Phase 3: 后置验证 — 执行反馈闭环核心
+    yield {"event":"phase","data":{"phase":"verifying","message":"验证结果..."}}
+    
+    t_verify=_time.time()
+    verification_feedback=_verify_results(llm, intent, results, trace["steps"])
+    trace["verification"]["elapsed_ms"]=int((_time.time()-t_verify)*1000)
+    trace["verification"]["passed"]=verification_feedback.get("passed",True)
+    trace["verification"]["feedback"]=verification_feedback.get("feedback","")
+    
+    # Phase 4: Summarize — 聚合验证反馈
     yield {"event":"phase","data":{"phase":"summarizing","message":"生成报告..."}}
     
-    report=llm.invoke([
-        ("system","用中文生成运维报告, 含操作概览表 + 总结建议, Markdown 格式。不要编造工具未返回的信息。"),
-        ("user",f"执行结果: {json.dumps([r.get('summary',{}) for r in results],ensure_ascii=False)}"),
-    ]).content
+    t_summ=_time.time()
+    report=_generate_summary(llm, intent, results, trace["steps"], verification_feedback)
+    trace["summarization"]["elapsed_ms"]=int((_time.time()-t_summ)*1000)
+    
+    total_elapsed=int((_time.time()-t_start)*1000)
+    
+    # ── 持久化追踪 ──
+    await _persist_trace(
+        session_id=session_id,
+        user_input=user_input,
+        intent=intent,
+        plan_json=plan,
+        trace_json=trace,
+        summary=report,
+        total_elapsed_ms=total_elapsed,
+    )
     
     yield {"event":"agent_answer","data":{"content":report}}
+
+
+# ══════════════════════════════════════════
+# 反馈闭环辅助函数
+# ══════════════════════════════════════════
+
+def _execute_step_with_retry(llm, registry, step, trace, max_retries):
+    """
+    执行步骤, 失败时调用 LLM 分析错误 + 修正参数 + 重试
+    返回 (最终结果, sse事件列表)
+    """
+    import time as _time
+    tool_name=step.get("tool","")
+    params=step.get("params",{}).copy()
+    events=[]
+    retries=0
+    
+    while retries<=max_retries:
+        t_step=_time.time()
+        result=registry.call(tool_name, **params)
+        step_elapsed=int((_time.time()-t_step)*1000)
+        
+        status=result.get("status","?")
+        trace_entry={
+            "id":step["id"],
+            "tool":tool_name,
+            "params":params.copy(),
+            "result":result.get("summary",{}),
+            "elapsed_ms":step_elapsed,
+            "status":status,
+            "attempt":retries+1,
+        }
+        trace["steps"].append(trace_entry)
+        
+        if status!="error":
+            return result, events
+        
+        # 失败 — 尝试 LLM 修正参数
+        error_msg=result.get("summary",{}).get("error","未知错误")
+        
+        if retries>=max_retries:
+            _logger.info(f"步骤 {step['id']} 重试耗尽 (已 {retries+1} 次)")
+            return result, events
+        
+        # LLM 分析错误 + 修正参数
+        retries+=1
+        _logger.info(f"步骤 {step['id']} ({tool_name}) 失败, 触发 LLM 参数修正 (第{retries}次) — {error_msg}")
+        
+        events.append({"event":"step_result","data":{
+            "step_id":step["id"],"tool":tool_name,
+            "status":"RETRYING","error":error_msg,"retry":retries,"max_retries":max_retries}})
+        
+        t_fix=_time.time()
+        fix_prompt=_RETRY_PROMPT.format(
+            tool_name=tool_name,
+            original_params=json.dumps(params, ensure_ascii=False),
+            error_msg=error_msg,
+        )
+        fix_text=llm.invoke([
+            ("system","你是运维故障修复器。只输出 JSON。"),
+            ("user",fix_prompt),
+        ]).content
+        
+        trace["retries"].append({
+            "step_id":step["id"],
+            "attempt":retries,
+            "error":error_msg,
+            "llm_fix_output":fix_text,
+            "elapsed_ms":int((_time.time()-t_fix)*1000),
+        })
+        
+        try:
+            s=fix_text.find("{")
+            e=fix_text.rfind("}")+1
+            fix=json.loads(fix_text[s:e])
+            fixed_params=fix.get("fixed_params",None)
+            if fixed_params is None:
+                _logger.info(f"步骤 {step['id']} LLM 判定不可修复: {fix.get('reason','')}")
+                return result, events  # 不可修复, 触发 replan
+            params.update(fixed_params)
+            _logger.info(f"步骤 {step['id']} 参数已修正: {fix.get('reason','')}, 重试中...")
+        except json.JSONDecodeError:
+            _logger.warning(f"步骤 {step['id']} LLM 修正输出非 JSON, 无法重试")
+            return result, events
+    
+    return result, events
+
+
+def _try_replan(llm, trace, intent, steps, failed_step_idx, error_msg, results, replan_count, max_replans):
+    """LLM 重新规划剩余步骤, 返回新的剩余步骤列表或空"""
+    import time as _time
+    failed_step=steps[failed_step_idx]
+    succeeded=[{
+        "step":s.get("description",""),
+        "result":r.get("summary",{}) if isinstance(r,dict) else {},
+    } for s,r in zip(steps[:failed_step_idx], results)]
+    
+    t_rp=_time.time()
+    replan_prompt=_REPLAN_PROMPT.format(
+        intent=intent,
+        succeeded_steps=json.dumps(succeeded, ensure_ascii=False),
+        failed_step=f"{failed_step['id']}({failed_step['tool']})",
+        error_msg=error_msg,
+        remaining_steps=json.dumps(steps[failed_step_idx+1:], ensure_ascii=False),
+        next_id=failed_step["id"],
+    )
+    new_plan_text=llm.invoke([
+        ("system","你是运维重新规划器。只输出 JSON。"),
+        ("user",replan_prompt),
+    ]).content
+    
+    trace["replans"].append({
+        "step_failed":failed_step["id"],
+        "error":error_msg,
+        "llm_output":new_plan_text,
+        "elapsed_ms":int((_time.time()-t_rp)*1000),
+        "count":replan_count,
+    })
+    
+    try:
+        s=new_plan_text.find("{")
+        e=new_plan_text.rfind("}")+1
+        new_plan=json.loads(new_plan_text[s:e])
+        new_steps=new_plan.get("steps",[])
+        _logger.info(f"Replan ({replan_count}/{max_replans}) 生成 {len(new_steps)} 个新步骤")
+        return new_steps
+    except json.JSONDecodeError:
+        _logger.warning(f"Replan 输出非 JSON: {new_plan_text[:200]}")
+        return []
+
+
+def _verify_results(llm, intent, results, trace_steps):
+    """
+    后置验证: 检查所有结果是否满足原始意图
+    返回 {"passed":bool, "feedback":str}
+    """
+    try:
+        summary_data=[s.get("result",s.get("summary",{})) for s in trace_steps]
+        verify_prompt=f"""验证以下运维执行是否达到了 "意图: {intent}"。
+执行结果: {json.dumps(summary_data, ensure_ascii=False)}
+
+输出 JSON: {{"passed":true/false, "feedback":"一句话验证意见"}}
+只输出 JSON。"""
+        
+        verify_text=llm.invoke([
+            ("system","你是运维质量验证器。只输出 JSON。"),
+            ("user",verify_prompt),
+        ]).content
+        s=verify_text.find("{")
+        e=verify_text.rfind("}")+1
+        return json.loads(verify_text[s:e])
+    except Exception:
+        return {"passed":True,"feedback":"验证跳过(LLM 输出异常)"}
+
+
+def _generate_summary(llm, intent, results, trace_steps, verification_feedback):
+    """
+    生成总结报告, 融入验证反馈
+    """
+    errors=[s for s in trace_steps if s.get("status")=="error"]
+    retries=[s for s in trace_steps if s.get("attempt",1)>1]
+    passed=verification_feedback.get("passed",True)
+    vfb=verification_feedback.get("feedback","无")
+    
+    summary_data=[{
+        "tool":s.get("tool","?")[:30],
+        "status":s.get("status","?"),
+        "key":str(s.get("result",""))[:200],
+    } for s in trace_steps]
+    
+    context_parts=[]
+    if errors:
+        context_parts.append(f"⚠️ {len(errors)} 个步骤失败: {[e['tool'] for e in errors]}")
+    if retries:
+        context_parts.append(f"🔄 {len(retries)} 处参数修正重试")
+    context_parts.append(f"{'✅' if passed else '❌'} 意图验证: {vfb}")
+    
+    report=llm.invoke([
+        ("system","""用中文生成运维报告, Markdown 格式。
+包含:
+1. 📋 操作概览表
+2. 🔍 关键发现
+3. 💡 总结建议
+4. {"⚠️" if errors or not passed else ""} 风险提示(如有异常)
+
+不要编造工具未返回的信息。"""),
+        ("user",f"""意图: {intent}
+执行摘要: {'; '.join(context_parts)}
+详细结果: {json.dumps(summary_data, ensure_ascii=False)}
+"""),
+    ]).content
+    return report
+
+
+def _run_intent_audit(intent, steps, session_id=""):
+    """
+    动态意图审计 — 危险模式匹配 + 工具-意图一致性 + 漂移检测
+    返回 audit_result dict
+    """
+    try:
+        from app.core.intent_auditor import audit_intent, audit_steps_safety
+        
+        #主体审计 (历史意图为空, 仅做模式+一致性检查; 漂移检测后续异步补全)
+        result=audit_intent(intent, steps, history_intents=None)
+        
+        #步骤安全审计
+        step_audit=audit_steps_safety(steps)
+        if not step_audit["safe"]:
+            result["alerts"].extend(step_audit["alerts"])
+            result["risk_score"]=max(result["risk_score"], 70)
+            if result["risk_score"]>=90:
+                result["blocked"]=True
+                result["passed"]=False
+        
+        return result
+    except Exception as e:
+        _logger.error(f"意图审计异常: {e}")
+        return {"passed":True,"blocked":False,"risk_score":0,"alerts":[],"recommendation":"审计跳过(异常)"}
+
+
+async def _persist_trace(session_id, user_input, intent, plan_json, trace_json, summary, total_elapsed_ms):
+    """异步持久化流水线追踪记录"""
+    try:
+        from app.db import async_session
+        from app.models.pipeline_trace import PipelineTrace
+        import json as _json
+        async with async_session() as db:
+            trace=PipelineTrace(
+                session_id=session_id,
+                user_input=user_input,
+                intent=intent,
+                plan_json=_json.dumps(plan_json, ensure_ascii=False),
+                trace_json=_json.dumps(trace_json, ensure_ascii=False, default=str),
+                summary=summary,
+                total_elapsed_ms=total_elapsed_ms,
+            )
+            db.add(trace)
+            await db.commit()
+            _logger.info(f"流水线追踪已保存: session={session_id}, {len(trace_json.get('steps',[]))} 步, {total_elapsed_ms}ms")
+    except Exception as e:
+        _logger.error(f"持久化追踪失败: {e}")

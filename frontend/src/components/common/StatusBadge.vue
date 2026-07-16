@@ -50,8 +50,10 @@ const label = computed(() => {
 .risk-read_only  { background: var(--color-safe-soft); color: var(--color-safe); }
 .risk-restricted { background: var(--color-warning-soft); color: var(--color-warning); }
 .risk-dangerous  { background: var(--color-danger-soft); color: var(--color-danger); }
+.risk-critical   { background: #ede9fe; color: #7c3aed; }
 
 .risk-read_only .status-dot  { background: var(--color-safe); }
 .risk-restricted .status-dot { background: var(--color-warning); }
 .risk-dangerous .status-dot  { background: var(--color-danger); }
+.risk-critical .status-dot   { background: #7c3aed; }
 </style>
