@@ -25,9 +25,11 @@ build-deb.sh
 config/
 TODO/
 .playwright-mcp/
-data/
 docs/CHANGELOG.md
 build-deb-loongarch.sh
 package-loongarch.sh
 XikiyAIOps.pptx
 llm_config.json
+# RAG: 知识源文件跟踪, 运行时数据忽略
+backend/data/rag_db/
+backend/data/backups/
