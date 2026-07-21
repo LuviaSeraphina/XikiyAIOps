@@ -255,6 +255,16 @@ async def plan_execute_chat(user_input: str, session_id: str = "") -> AsyncGener
     if not audit_result["passed"]:
         yield {"event":"phase","data":{"phase":"warning","message":audit_result["recommendation"]}}
         yield {"event":"audit_warning","data":audit_result}
+    
+    # Phase 2: Execution
+    yield {"event":"phase","data":{"phase":"executing","message":"执行中..."}}
+    
+    results=[]
+    step_idx=0
+    max_retries=1
+    max_replans=2
+    replan_count=0
+    
     while step_idx<len(steps):
         step=steps[step_idx]
         tool_name=step.get("tool","")
