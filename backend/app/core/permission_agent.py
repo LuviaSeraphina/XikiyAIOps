@@ -262,9 +262,11 @@ def check_permission(risk_level, user=None, target=None, action="execute"):
                 if target.startswith(restricted + "/") or target == restricted:
                     return False,f"路径 '{target}' 在受限写目录 '{restricted}' 下",None
 
-    # critical — 永久拦截, 即使 root 也不可执行
+    # critical — root + 强制确认, 但可执行 (受保护名单额外拦截)
     if required=="ops_blocked":
-        return False,f"critical: 致命操作 '{risk_level}' 已被永久拦截, 不可通过 Agent 执行",None
+        if user=="root":
+            return True,f"critical: root 确认执行致命操作 {risk_level}, 请谨慎",_get_sandbox_user()
+        return False,f"critical: 致命操作 '{risk_level}' 需要 root 权限 + 二次确认 (当前用户: {user})",None
 
     # ── OS 用户组检查 ──
     # ops_basic (read_only) — 任何用户可执行
@@ -291,8 +293,8 @@ def check_permission(risk_level, user=None, target=None, action="execute"):
 方法: require_confirmation(), 判断操作是否需要用户确认
 """
 def require_confirmation(risk_level):
-    """判断操作是否需要用户确认 (critical 永远不需, 因已被拦截)"""
-    return risk_level in ("restricted","dangerous")
+    """判断操作是否需要用户确认 (critical 必须确认)"""
+    return risk_level in ("restricted","dangerous","critical")
 
 """ 
 方法: validate_path(), 校验操作路径是否安全
